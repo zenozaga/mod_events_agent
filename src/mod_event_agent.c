@@ -1,16 +1,9 @@
-/*
- * mod_event_agent.c
- * Main module entry point for FreeSWITCH NATS Integration
- */
-
 #include "mod_event_agent.h"
 
-/* Module interface */
 SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load);
 SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_event_agent_shutdown);
 SWITCH_MODULE_DEFINITION(mod_event_agent, mod_event_agent_load, mod_event_agent_shutdown, NULL);
 
-/* Global state */
 mod_event_agent_globals_t globals = {0};
 
 SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
@@ -42,7 +35,6 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
         return SWITCH_STATUS_FALSE;
     }
 
-    // Create driver based on configuration
     if (strcasecmp(globals.driver_name, "nats") == 0) {
 #ifdef WITH_NATS
         globals.driver = driver_nats_create(globals.pool);

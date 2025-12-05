@@ -1,8 +1,3 @@
-/*
- * mod_event_agent_config.c
- * Configuration parser for mod_event_agent
- */
-
 #include "mod_event_agent.h"
 
 switch_status_t event_agent_config_load(switch_memory_pool_t *pool)

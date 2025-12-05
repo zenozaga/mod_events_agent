@@ -1,8 +1,3 @@
-/*
- * driver_nats.c
- * NATS driver implementation for event_agent
- */
-
 #include "../driver_interface.h"
 #include <nats/nats.h>
 

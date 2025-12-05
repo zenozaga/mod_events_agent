@@ -1,8 +1,3 @@
-/*
- * fs_event_adapter.c
- * FreeSWITCH event binding and handling
- */
-
 #include "mod_event_agent.h"
 
 static switch_bool_t should_publish_event(switch_event_t *event)
@@ -16,7 +11,6 @@ static switch_bool_t should_publish_event(switch_event_t *event)
 
     event_name = switch_event_name(event->event_id);
 
-    /* Check exclude list first */
     if (globals.exclude_count > 0) {
         for (i = 0; i < globals.exclude_count; i++) {
             if (globals.exclude_events[i] && 
@@ -26,7 +20,6 @@ static switch_bool_t should_publish_event(switch_event_t *event)
         }
     }
 
-    /* If include list is specified, only publish those events */
     if (globals.include_count > 0) {
         for (i = 0; i < globals.include_count; i++) {
             if (globals.include_events[i] && 
@@ -37,7 +30,6 @@ static switch_bool_t should_publish_event(switch_event_t *event)
         return SWITCH_FALSE;
     }
 
-    /* If publish_all_events is enabled and no include list, publish everything */
     return globals.publish_all_events;
 }
 
@@ -54,7 +46,6 @@ static char *build_subject(switch_event_t *event)
 
     event_name = switch_event_name(event->event_id);
     
-    /* Convert event name to lowercase and replace underscores with dots */
     switch_copy_string(lowercase_name, event_name, sizeof(lowercase_name));
     for (p = lowercase_name; *p; p++) {
         *p = tolower(*p);
@@ -63,7 +54,6 @@ static char *build_subject(switch_event_t *event)
         }
     }
 
-    /* Build subject: prefix.events.channel.create */
     subject = switch_mprintf("%s.events.%s", globals.subject_prefix, lowercase_name);
 
     return subject;

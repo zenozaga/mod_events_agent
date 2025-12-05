@@ -43,7 +43,7 @@ services:
 
   # FreeSWITCH
   freeswitch:
-    image: drachtio/drachtio-freeswitch-mrf:latest
+    image: freeswitch-events-agent:latest
     container_name: agent_nats_dev_freeswitch
     privileged: true
     depends_on:
@@ -62,9 +62,11 @@ services:
     environment:
       - MOD_AUDIO_FORK_SUBPROTOCOL_NAME=audio.drachtio.org
       - DRACHTIO_HOST=${FS_IP}
+      - NATS_URL=nats://agent-dev-nats:4222
     volumes:
       - freeswitch_sounds:/usr/local/freeswitch/sounds
       - freeswitch_recordings:/usr/local/freeswitch/recordings
+      - ./autoload_configs/mod_event_agent.conf.xml:/usr/local/freeswitch/conf/autoload_configs/mod_event_agent.conf.xml:ro
       - ./:/workspace
     restart: unless-stopped
 

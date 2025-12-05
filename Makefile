@@ -17,7 +17,10 @@ CFLAGS += -I./include
 
 # Local NATS library
 # Use shared library if available (for Docker), otherwise static
-ifneq (,$(wildcard ./lib/nats/libnats.so))
+ifneq (,$(wildcard /usr/local/lib/libnats.so))
+  NATS_LIB = -lnats
+  NATS_RPATH =
+else ifneq (,$(wildcard ./lib/nats/libnats.so))
   NATS_LIB = -L./lib/nats -lnats
   NATS_RPATH = -Wl,-rpath,./lib/nats
 else
@@ -36,6 +39,10 @@ SOURCES = src/mod_event_agent.c \
           src/event_adapter.c \
           src/event_agent_config.c \
           src/command_handler.c \
+          src/commands/command_core.c \
+          src/commands/command_call.c \
+          src/commands/command_api.c \
+          src/commands/command_status.c \
           src/serialization.c \
           src/logger.c
 
@@ -73,9 +80,15 @@ OBJECTS = $(SOURCES:.c=.o)
 # Output
 TARGET = $(MODULE_NAME).so
 
-.PHONY: all clean install test
+.PHONY: all clean install test compile-nats
 
 all: $(TARGET)
+
+nats:
+	@echo "🔧 Compiling with NATS driver..."
+	$(MAKE) clean
+	$(MAKE) WITH_NATS=1
+	@echo "✅ NATS driver compiled successfully"
 
 $(TARGET): $(OBJECTS)
 	$(CC) -shared -o $@ $^ $(LDFLAGS)
@@ -184,6 +197,7 @@ help:
 	@echo ""
 	@echo "Build targets:"
 	@echo "  make              - Build module with NATS driver"
+	@echo "  make compile-nats - Clean and build with NATS driver"
 	@echo "  make clean        - Clean build files"
 	@echo "  make tests        - Build test programs"
 	@echo "  make install      - Install module (needs DESTDIR)"

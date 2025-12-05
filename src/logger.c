@@ -1,8 +1,3 @@
-/*
- * logger.c
- * Logging utilities for mod_event_agent
- */
-
 #include "mod_event_agent.h"
 #include <stdarg.h>
 

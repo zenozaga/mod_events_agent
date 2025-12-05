@@ -1,10 +1,3 @@
-/*
- * mod_event_agent.h
- * FreeSWITCH Event Agent - Pluggable Event Streaming Module
- * 
- * Supports multiple messaging backends: NATS, Kafka, RabbitMQ, Redis
- */
-
 #ifndef MOD_EVENT_AGENT_H
 #define MOD_EVENT_AGENT_H
 

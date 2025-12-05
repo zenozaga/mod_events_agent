@@ -1,6 +1,7 @@
+FROM drachtio/drachtio-freeswitch-mrf:latest AS freeswitch-base
+
 FROM debian:bookworm-slim AS builder
 
-# Install dependencies for building
 RUN apt-get update && apt-get install -y \
     git \
     build-essential \
@@ -9,10 +10,9 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     zlib1g-dev \
     libcurl4-openssl-dev \
-    wget \
+    libcjson-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install NATS C Client
 WORKDIR /tmp
 RUN git clone https://github.com/nats-io/nats.c && \
     cd nats.c && \
@@ -23,26 +23,27 @@ RUN git clone https://github.com/nats-io/nats.c && \
     ldconfig && \
     cd /tmp && rm -rf nats.c
 
-# Download FreeSWITCH dev headers (lightweight alternative)
-RUN mkdir -p /tmp/freeswitch_headers && \
-    cd /tmp/freeswitch_headers && \
-    wget -q https://raw.githubusercontent.com/signalwire/freeswitch/master/src/include/switch.h && \
-    wget -q https://raw.githubusercontent.com/signalwire/freeswitch/master/src/include/switch_types.h && \
-    wget -q https://raw.githubusercontent.com/signalwire/freeswitch/master/src/include/switch_apr.h && \
-    wget -q https://raw.githubusercontent.com/signalwire/freeswitch/master/src/include/switch_platform.h && \
-    wget -q https://raw.githubusercontent.com/signalwire/freeswitch/master/src/include/switch_module_interfaces.h && \
-    wget -q https://raw.githubusercontent.com/signalwire/freeswitch/master/src/include/switch_core.h && \
-    wget -q https://raw.githubusercontent.com/signalwire/freeswitch/master/src/include/switch_loadable_module.h && \
-    wget -q https://raw.githubusercontent.com/signalwire/freeswitch/master/src/include/switch_log.h && \
-    wget -q https://raw.githubusercontent.com/signalwire/freeswitch/master/src/include/switch_channel.h && \
-    wget -q https://raw.githubusercontent.com/signalwire/freeswitch/master/src/include/switch_utils.h && \
-    wget -q https://raw.githubusercontent.com/signalwire/freeswitch/master/src/include/switch_buffer.h && \
-    wget -q https://raw.githubusercontent.com/signalwire/freeswitch/master/src/include/switch_event.h
+COPY --from=freeswitch-base /usr/local/freeswitch/include/freeswitch/ /tmp/freeswitch_headers/
 
-# Set environment
-ENV PATH="/usr/local/bin:${PATH}"
-ENV PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH}"
+WORKDIR /workspace
+COPY Makefile .
+COPY src/ src/
+COPY include/ include/
+COPY lib/ lib/
 
-WORKDIR /work
+RUN make DRIVER=nats clean all
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    libssl3 \
+    libcurl4 \
+    zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/lib/libnats.so* /usr/local/lib/
+COPY --from=builder /workspace/mod_event_agent.so /usr/local/lib/
+
+RUN ldconfig
 
 CMD ["/bin/bash"]

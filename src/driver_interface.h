@@ -1,10 +1,3 @@
-/*
- * driver_interface.h
- * Abstract driver interface for event streaming backends
- * 
- * Supports multiple messaging systems: NATS, Kafka, RabbitMQ, Redis, etc.
- */
-
 #ifndef DRIVER_INTERFACE_H
 #define DRIVER_INTERFACE_H
 

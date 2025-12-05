@@ -1,25 +1,3 @@
-/**
- * @file nats_command_client.c
- * @brief NATS Command Client - Send commands to FreeSWITCH via NATS Microservices
- * 
- * Demonstrates request-reply pattern for controlling FreeSWITCH:
- * - fs.cmd.originate: Originate calls
- * - fs.cmd.hangup: Hangup channels
- * - fs.cmd.bridge: Bridge channels
- * - fs.cmd.status: Get system status
- * - fs.cmd.execute: Execute dialplan apps
- * 
- * Usage:
- *   ./nats_command_client <command> [args]
- * 
- * Examples:
- *   ./nats_command_client status
- *   ./nats_command_client originate user/1000 9999
- *   ./nats_command_client hangup <uuid>
- *   ./nats_command_client bridge <uuid> user/1001
- *   ./nats_command_client execute <uuid> playback /tmp/hello.wav
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,9 +12,6 @@ void signalHandler(int sig) {
     keepRunning = 0;
 }
 
-/**
- * Send command and wait for response
- */
 natsStatus send_command(natsConnection *conn, const char *subject, const char *json_data) {
     natsStatus s = NATS_OK;
     natsMsg *reply = NULL;
@@ -52,7 +27,6 @@ natsStatus send_command(natsConnection *conn, const char *subject, const char *j
         return s;
     }
     
-    // Parse response
     const char *response_data = natsMsg_GetData(reply);
     printf("📥 Response:\n");
     
@@ -61,7 +35,6 @@ natsStatus send_command(natsConnection *conn, const char *subject, const char *j
         char *formatted = cJSON_Print(json);
         printf("%s\n\n", formatted);
         
-        // Check success status
         cJSON *success = cJSON_GetObjectItem(json, "success");
         if (success && success->valueint) {
             printf("✅ Command executed successfully\n");
@@ -83,9 +56,6 @@ natsStatus send_command(natsConnection *conn, const char *subject, const char *j
     return NATS_OK;
 }
 
-/**
- * Command: status
- */
 natsStatus cmd_status(natsConnection *conn) {
     cJSON *json = cJSON_CreateObject();
     cJSON_AddStringToObject(json, "command", "status");
@@ -98,10 +68,6 @@ natsStatus cmd_status(natsConnection *conn) {
     return s;
 }
 
-/**
- * Command: originate
- * Usage: originate <endpoint> <extension> [context] [caller_id]
- */
 natsStatus cmd_originate(natsConnection *conn, int argc, char *argv[]) {
     if (argc < 4) {
         fprintf(stderr, "Usage: %s originate <endpoint> <extension> [context] [caller_id]\n", argv[0]);
@@ -130,10 +96,6 @@ natsStatus cmd_originate(natsConnection *conn, int argc, char *argv[]) {
     return s;
 }
 
-/**
- * Command: hangup
- * Usage: hangup <uuid> [cause]
- */
 natsStatus cmd_hangup(natsConnection *conn, int argc, char *argv[]) {
     if (argc < 3) {
         fprintf(stderr, "Usage: %s hangup <uuid> [cause]\n", argv[0]);
@@ -156,10 +118,6 @@ natsStatus cmd_hangup(natsConnection *conn, int argc, char *argv[]) {
     return s;
 }
 
-/**
- * Command: bridge
- * Usage: bridge <uuid> <endpoint>
- */
 natsStatus cmd_bridge(natsConnection *conn, int argc, char *argv[]) {
     if (argc < 4) {
         fprintf(stderr, "Usage: %s bridge <uuid> <endpoint>\n", argv[0]);
@@ -182,10 +140,6 @@ natsStatus cmd_bridge(natsConnection *conn, int argc, char *argv[]) {
     return s;
 }
 
-/**
- * Command: execute
- * Usage: execute <uuid> <app> [args]
- */
 natsStatus cmd_execute(natsConnection *conn, int argc, char *argv[]) {
     if (argc < 4) {
         fprintf(stderr, "Usage: %s execute <uuid> <app> [args]\n", argv[0]);
@@ -212,9 +166,6 @@ natsStatus cmd_execute(natsConnection *conn, int argc, char *argv[]) {
     return s;
 }
 
-/**
- * Print usage
- */
 void print_usage(const char *prog) {
     printf("NATS Command Client for FreeSWITCH\n");
     printf("==================================\n\n");
@@ -250,11 +201,9 @@ int main(int argc, char *argv[]) {
     
     const char *command = argv[1];
     
-    // Setup signal handler
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);
     
-    // Get NATS URL from environment or use default
     const char *nats_url = getenv("NATS_URL");
     if (nats_url == NULL) {
         nats_url = "nats://127.0.0.1:4222";
@@ -262,7 +211,6 @@ int main(int argc, char *argv[]) {
     
     printf("🔌 Connecting to NATS: %s\n", nats_url);
     
-    // Create options
     s = natsOptions_Create(&opts);
     if (s != NATS_OK) {
         fprintf(stderr, "Failed to create options: %s\n", natsStatus_GetText(s));
@@ -270,9 +218,8 @@ int main(int argc, char *argv[]) {
     }
     
     natsOptions_SetURL(opts, nats_url);
-    natsOptions_SetTimeout(opts, 5000); // 5 second timeout
+    natsOptions_SetTimeout(opts, 5000);
     
-    // Connect
     s = natsConnection_Connect(&conn, opts);
     if (s != NATS_OK) {
         fprintf(stderr, "Failed to connect: %s\n", natsStatus_GetText(s));
@@ -282,7 +229,6 @@ int main(int argc, char *argv[]) {
     
     printf("✅ Connected to NATS\n\n");
     
-    // Execute command
     if (strcmp(command, "status") == 0) {
         s = cmd_status(conn);
     } else if (strcmp(command, "originate") == 0) {
@@ -301,7 +247,6 @@ int main(int argc, char *argv[]) {
         s = NATS_INVALID_ARG;
     }
     
-    // Cleanup
     natsConnection_Destroy(conn);
     natsOptions_Destroy(opts);
     
