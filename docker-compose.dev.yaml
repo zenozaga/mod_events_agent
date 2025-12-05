@@ -1,0 +1,111 @@
+version: '3.8'
+
+services:
+  # NATS Message Broker
+  nats_broker:
+    image: nats:alpine3.22
+    container_name: agent-dev-nats
+    command: "-js -sd /data -m 8222"
+    ports:
+      - "${NATS_PORT}:4222"
+      - "${NATS_MONITOR_PORT}:8222"
+    volumes:
+      - .docker-store/nats-dev:/data
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agent_nats_dev
+
+  # PostgreSQL Database (for Kamailio)
+  postgres:
+    image: postgres:15-alpine
+    container_name: agent_nats_dev_postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "${DB_PORT}:5432"
+    networks:
+      - agent_nats_dev
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      
+
+  # FreeSWITCH
+  freeswitch:
+    image: drachtio/drachtio-freeswitch-mrf:latest
+    container_name: agent_nats_dev_freeswitch
+    privileged: true
+    depends_on:
+      nats_broker:
+        condition: service_healthy
+    ports:
+      - "${FS_SIP_PORT}:5080/tcp"
+      - "${FS_SIP_PORT}:5080/udp"
+      - "${FS_SIP_TLS_PORT}:5061/tcp"
+      - "${FS_ESL_PORT}:8021/tcp"
+      - "${FS_WS_PORT}:5066/tcp"
+      - "${FS_WSS_PORT}:7443/tcp"
+      - "${FS_RTP_START}-${FS_RTP_END}:${FS_RTP_START}-${FS_RTP_END}/udp"
+    networks:
+      - agent_nats_dev
+    environment:
+      - MOD_AUDIO_FORK_SUBPROTOCOL_NAME=audio.drachtio.org
+      - DRACHTIO_HOST=${FS_IP}
+    volumes:
+      - freeswitch_sounds:/usr/local/freeswitch/sounds
+      - freeswitch_recordings:/usr/local/freeswitch/recordings
+      - ./:/workspace
+    restart: unless-stopped
+
+  # Kamailio SIP Proxy
+  kamailio:
+    image: ghcr.io/kamailio/kamailio:6.0.4-bullseye
+    container_name: agent_nats_dev_kamailio
+    ports:
+      - "${KAM_SIP_PORT}:5060/tcp"
+      - "${KAM_SIP_PORT}:5060/udp"
+      - "${KAM_SIP_TLS_PORT}:5061/tcp"
+      - "${KAM_WS_PORT}:8080/tcp"
+      - "${KAM_WSS_PORT}:4443/tcp"
+    networks:
+      - agent_nats_dev
+    environment:
+      - DBHOST=${DB_HOST}
+      - DBPORT=5432
+      - DBNAME=${DB_NAME}
+      - DBRWUSER=${DB_USER}
+      - DBRWPW=${DB_PASSWORD}
+      - FS_HOST=${FS_IP}
+      - FS_PORT=5060
+    volumes:
+      - ./kamailio:/etc/kamailio
+    depends_on:
+      postgres:
+        condition: service_healthy
+      freeswitch:
+        condition: service_started
+    restart: unless-stopped
+    command: kamailio -DD -E -m 64
+
+networks:
+  agent_nats_dev:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  freeswitch_sounds:
+    driver: local
+  freeswitch_recordings:
+    driver: local

@@ -1,0 +1,23 @@
+# Git
+.git/
+.gitignore
+
+# Build artifacts
+*.o
+*.so
+*.a
+build/
+tests/test_nats_connection
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Temporary
+*~
+*.swp
+
+# IDE
+.vscode/
+.idea/
