@@ -317,17 +317,7 @@ mod_event_agent/
 
 #### `show_modules_test`
 NATS client that verifies module loading by sending the `show modules` command:
-
-```bash
-cd tests
-
-# Compile test
-gcc -o bin/show_modules_test src/show_modules_test.c -I../lib/nats -L../lib/nats -lnats -lpthread -lssl -lcrypto
-
-# Execute
-LD_LIBRARY_PATH=../lib/nats:$LD_LIBRARY_PATH ./bin/show_modules_test
-```
-
+ 
 **Expected output:**
 ```json
 {
@@ -412,17 +402,7 @@ FreeSWITCH Events → NATS → [
 - Geographic load balancing
 - Real-time global monitoring
 ```
-
-### 4. Testing & CI/CD
-```bash
-# Automated testing without installing ESL
-docker run --rm nats:alpine &
-./tests/bin/service_a_nats '{"command":"status"}'
-
-# Simplified continuous integration
-# No heavy dependencies required in pipelines
-```
-
+ 
 ---
 
 ## 🛠️ Driver Development
@@ -483,31 +463,6 @@ typedef struct event_driver {
 
 ---
 
-## 🤝 Contributions
-
-Contributions are welcome! Especially for:
-
-- **New Drivers**: Kafka, RabbitMQ, Redis
-- **Tests**: Additional use cases
-- **Documentation**: Examples, tutorials
-- **Optimizations**: Performance, memory
-
-### Contribution Process
-
-1. Fork the repository
-2. Create branch: `git checkout -b feature/my-feature`
-3. Commit changes: `git commit -am 'Add new feature'`
-4. Push: `git push origin feature/my-feature`
-5. Create Pull Request
-
----
-
-## 📄 License
-
-MIT License - See [LICENSE](LICENSE) for details.
-
----
-
 ## 🙏 Credits
 
 - **FreeSWITCH**: https://freeswitch.org/
@@ -524,11 +479,6 @@ MIT License - See [LICENSE](LICENSE) for details.
 
 ---
 
-**Made with ❤️ for the FreeSWITCH community**
-> PUB freeswitch.api 20
-> {"command":"status"}
-```
-
 ### 5. Multi-Node Clusters
 ```
 3 FreeSWITCH nodes with different capabilities
@@ -539,25 +489,6 @@ MIT License - See [LICENSE](LICENSE) for details.
 
 See [API.md](API.md) section "Multi-Node Deployments" for examples.
 
-## 📖 Documentation
-
-- **[PHILOSOPHY.md](PHILOSOPHY.md)** - ⭐ Why ultra-lightweight is better (ESL vs NATS comparison)
-- **[NATS_RAW_PROTOCOL.md](NATS_RAW_PROTOCOL.md)** - ⭐ Protocol from scratch without libraries
-- **[API.md](API.md)** - Complete reference with multi-node support
-- **[STATUS.md](STATUS.md)** - Current project status
-
-## 🔑 Key Advantages
-
-| Feature | Advantage |
-|----------------|---------|
-| **Size** | 750x lighter than ESL |
-| **Dependencies** | Zero (only standard libc) |
-| **Portability** | Compiles on any POSIX |
-| **Debugging** | telnet/netcat/wireshark |
-| **Latency** | 0.5-1ms (vs 2-5ms ESL) |
-| **Throughput** | ~10K req/s (vs ~1K ESL) |
-| **Deployment** | Copy 10KB binary |
-| **Learning** | Simple, educational code |
 
 ## 📄 License
 
@@ -569,3 +500,9 @@ MIT License
 - [Changelog](CHANGELOG.md)
 - [NATS](https://nats.io)
 - [FreeSWITCH](https://freeswitch.org)
+
+---
+
+## 📄 License
+
+MIT License - See [LICENSE](LICENSE) for details.
