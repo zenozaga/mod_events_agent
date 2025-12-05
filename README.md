@@ -4,23 +4,23 @@
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 [![FreeSWITCH](https://img.shields.io/badge/FreeSWITCH-1.10+-blue)]()
 
-**Módulo FreeSWITCH que permite control y monitoreo mediante message brokers (NATS, Kafka, RabbitMQ, Redis).**
+**FreeSWITCH module that enables control and monitoring through message brokers (NATS, Kafka, RabbitMQ, Redis).**
 
 ---
 
-## 📖 Propósito
+## 📖 Purpose
 
-`mod_event_agent` convierte a FreeSWITCH en un **microservicio orientado a eventos**, permitiendo:
+`mod_event_agent` turns FreeSWITCH into an **event-oriented microservice**, enabling:
 
-- **Control Remoto**: Ejecutar comandos API de FreeSWITCH desde cualquier servicio externo
-- **Event Streaming**: Publicar eventos de FreeSWITCH a sistemas externos en tiempo real
-- **Desacoplamiento**: Comunicación asíncrona mediante message brokers estándar
-- **Escalabilidad**: Multi-nodo con balanceo de carga y alta disponibilidad
-- **Poliglota**: Cualquier lenguaje que soporte el message broker puede interactuar
+- **Remote Control**: Execute FreeSWITCH API commands from any external service
+- **Event Streaming**: Publish FreeSWITCH events to external systems in real-time
+- **Decoupling**: Asynchronous communication through standard message brokers
+- **Scalability**: Multi-node with load balancing and high availability
+- **Polyglot**: Any language that supports the message broker can interact
 
 ---
 
-## 🏗️ Arquitectura
+## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -60,38 +60,38 @@
 
 ---
 
-## ✨ Características
+## ✨ Features
 
-### 🎯 Control de FreeSWITCH
-- **API Genérica**: Ejecuta cualquier comando API de FreeSWITCH
-- **Request-Reply**: Comunicación síncrona con respuestas JSON estructuradas
-- **Async Commands**: Operaciones no bloqueantes (originate, hangup, uuid_*)
-- **Multi-Node**: Soporte para clusters con identificación por `node_id`
+### 🎯 FreeSWITCH Control
+- **Generic API**: Execute any FreeSWITCH API command
+- **Request-Reply**: Synchronous communication with structured JSON responses
+- **Async Commands**: Non-blocking operations (originate, hangup, uuid_*)
+- **Multi-Node**: Cluster support with `node_id` identification
 
-### 🚀 Drivers Soportados
-- **NATS** (✅ Completo): Alta performance, baja latencia
-- **Kafka** (🚧 Roadmap): Event streaming masivo
+### 🚀 Supported Drivers
+- **NATS** (✅ Complete): High performance, low latency
+- **Kafka** (🚧 Roadmap): Massive event streaming
 - **RabbitMQ** (🚧 Roadmap): Enterprise messaging
 - **Redis** (🚧 Roadmap): Cache + pub/sub
 
 ### 📊 Performance
-- **Throughput**: ~10,000 comandos/segundo
-- **Latencia**: <1ms (request-reply local)
-- **Overhead**: Mínimo (<0.1% CPU por comando)
+- **Throughput**: ~10,000 commands/second
+- **Latency**: <1ms (local request-reply)
+- **Overhead**: Minimal (<0.1% CPU per command)
 
 ## 🚀 Quick Start
 
-### 1. Instalar NATS Server (Ultra-liviano)
+### 1. Install NATS Server (Ultra-lightweight)
 
 ```bash
-# Docker (imagen de solo ~10MB)
+# Docker (only ~10MB image)
 docker run -d --name nats -p 4222:4222 nats:latest
 
-# O binario directo (sin dependencias)
+# Or direct binary (no dependencies)
 # https://nats.io/download/
 ```
 
-### 2. Compilar Módulo FreeSWITCH
+### 2. Compile FreeSWITCH Module
 
 ```bash
 ./reload.sh
@@ -99,69 +99,69 @@ docker run -d --name nats -p 4222:4222 nats:latest
 
 ---
 
-## 🚀 Instalación
+## 🚀 Installation
 
-### Requisitos
+### Requirements
 - FreeSWITCH 1.10+
-- Sistema Linux/Unix
-- gcc/make para compilación
-- NATS Server (u otro message broker según driver)
+- Linux/Unix system
+- gcc/make for compilation
+- NATS Server (or other message broker depending on driver)
 
-### Opción 1: Instalación Automática (Recomendada)
+### Option 1: Automatic Installation (Recommended)
 
 ```bash
-# En host (desarrollo local)
+# On host (local development)
 make
 make install
 
-# En contenedor Docker
+# In Docker container
 ./install.sh
 ```
 
-El script `install.sh` detecta automáticamente si está en contenedor y usa las rutas correctas.
+The `install.sh` script automatically detects if running in a container and uses the correct paths.
 
-### Opción 2: Compilación Manual
+### Option 2: Manual Compilation
 
 ```bash
-# 1. Compilar módulo
+# 1. Compile module
 make
 
-# 2. Instalar
+# 2. Install
 sudo cp mod_event_agent.so /usr/local/freeswitch/mod/
 sudo cp autoload_configs/mod_event_agent.conf.xml /usr/local/freeswitch/conf/autoload_configs/
 
-# 3. Agregar a modules.conf.xml
+# 3. Add to modules.conf.xml
 sudo nano /usr/local/freeswitch/conf/autoload_configs/modules.conf.xml
-# Agregar: <load module="mod_event_agent"/>
+# Add: <load module="mod_event_agent"/>
 
-# 4. Reiniciar FreeSWITCH
+# 4. Restart FreeSWITCH
 sudo systemctl restart freeswitch
 ```
 
-### Opción 3: Docker Development
+### Option 3: Docker Development
 
 ```bash
-# 1. Levantar entorno completo (FreeSWITCH + NATS)
+# 1. Start complete environment (FreeSWITCH + NATS)
 make docker-up
 
-# 2. Instalar módulo en contenedor
+# 2. Install module in container
 make docker-shell
 cd /workspace
 ./install.sh
 exit
 
-# 3. Reiniciar FreeSWITCH
+# 3. Restart FreeSWITCH
 make docker-restart
 
-# 4. Verificar logs
+# 4. Check logs
 make docker-logs
 ```
 
 ---
 
-## ⚙️ Configuración
+## ⚙️ Configuration
 
-Editar `/usr/local/freeswitch/conf/autoload_configs/mod_event_agent.conf.xml`:
+Edit `/usr/local/freeswitch/conf/autoload_configs/mod_event_agent.conf.xml`:
 
 ```xml
 <configuration name="mod_event_agent.conf" description="Event Agent Module">
@@ -183,166 +183,180 @@ Editar `/usr/local/freeswitch/conf/autoload_configs/mod_event_agent.conf.xml`:
 </configuration>
 ```
 
-### Configuración Multi-Nodo
+### Multi-Node Configuration
 
-Para clusters de FreeSWITCH, asignar `node-id` único a cada nodo:
+For FreeSWITCH clusters, assign a unique `node-id` to each node:
 
 ```xml
-<!-- Nodo 1 -->
+<!-- Node 1 -->
 <param name="node-id" value="fs-node-01"/>
 
-<!-- Nodo 2 -->
+<!-- Node 2 -->
 <param name="node-id" value="fs-node-02"/>
 ```
 
-Clientes pueden filtrar respuestas por `node_id` en el JSON de respuesta.
+Clients can filter responses by `node_id` in the JSON response.
 
 ---
 
-## 🎯 Uso Rápido
+## 🎯 Quick Usage
 
-### Instalar NATS Server
+### Install NATS Server
 
 ```bash
-# Docker (imagen de ~10MB)
+# Docker (~10MB image)
 docker run -d --name nats -p 4222:4222 nats:latest
 
-# O binario directo (https://nats.io/download/)
+# Or direct binary (https://nats.io/download/)
 wget https://github.com/nats-io/nats-server/releases/download/v2.10.7/nats-server-v2.10.7-linux-amd64.tar.gz
 tar xzf nats-server-*.tar.gz
 ./nats-server
 ```
 
-### Compilar Clientes de Ejemplo
+### Compile Example Clients
 
 ```bash
 cd tests
 make
 
-# Cliente service_a: Envía comandos y recibe respuestas
+# service_a client: Sends commands and receives responses
 LD_LIBRARY_PATH=../lib/nats ./bin/service_a_nats '{"command":"status"}'
 
-# Cliente service_b: Procesa comandos (simulación)
+# service_b client: Processes commands (simulation)
 LD_LIBRARY_PATH=../lib/nats ./bin/service_b_nats
 
-# Cliente simple: Multi-modo (pub/req/server)
+# simple client: Multi-mode (pub/req/server)
 LD_LIBRARY_PATH=../lib/nats ./bin/simple_test req freeswitch.api '{"command":"version"}'
 ```
 
-### Ejemplos de Comandos
+### Command Examples
 
 ```bash
-# Status del sistema
-./bin/service_a_nats '{"command":"status"}'
-# → {"success":true,"message":"API command executed","data":"UP 0 years...","timestamp":...,"node_id":"fs-node-01"}
+# System status
+./bin/show_modules_test 
+# → {"success":true,"message":"API command executed","data":"(list modules)","timestamp":...,"node_id":"fs-node-01"}
 
-# Versión de FreeSWITCH
-./bin/service_a_nats '{"command":"version"}'
-# → {"success":true,"data":"FreeSWITCH Version 1.10.10..."}
-
-# Variable global
-./bin/service_a_nats '{"command":"global_getvar","args":"hostname"}'
-# → {"success":true,"data":"e8e1491c7b69"}
-
-# Listar módulos
-./bin/service_a_nats '{"command":"show","args":"modules"}'
-# → {"success":true,"data":"type,name,ikey,filename\napi,..."}
-
-# Status de SIP
-./bin/service_a_nats '{"command":"sofia","args":"status"}'
-# → {"success":true,"data":"Name    Type    Data    State\n..."}
 ```
 
-Ver [docs/API.md](docs/API.md) para documentación completa de comandos disponibles.
+See [docs/API.md](docs/API.md) for complete command documentation.
 
 ---
 
-## 📊 Comparación vs ESL
+## 📊 Comparison vs ESL
 
-| Aspecto | mod_event_agent + NATS | ESL (Event Socket Library) |
+| Aspect | mod_event_agent + NATS | ESL (Event Socket Library) |
 |---------|------------------------|----------------------------|
-| **Protocolo** | NATS (text, open standard) | Propietario binario |
-| **Dependencias** | Ninguna (lib estática) | libesl + ~7MB deps |
-| **Debugging** | `telnet`, `nats` CLI, cualquier herramienta | Cliente ESL específico |
-| **Lenguajes** | Cualquiera con NATS client | Bindings específicos (Node, Python, etc.) |
-| **Latencia** | 0.5-1ms (local) | 2-5ms |
+| **Protocol** | NATS (text, open standard) | Proprietary binary |
+| **Dependencies** | None (static lib) | libesl + ~7MB deps |
+| **Debugging** | `telnet`, `nats` CLI, any tool | Specific ESL client |
+| **Languages** | Any with NATS client | Specific bindings (Node, Python, etc.) |
+| **Latency** | 0.5-1ms (local) | 2-5ms |
 | **Throughput** | ~10,000 req/s | ~1,000 req/s |
-| **Escalabilidad** | Nativa (NATS clustering) | Requiere proxy/balancer |
-| **Event Streaming** | Pub/Sub nativo | Socket connection 1:1 |
-| **Multi-Nodo** | Sí (node filtering) | Múltiples conexiones |
+| **Scalability** | Native (NATS clustering) | Requires proxy/balancer |
+| **Event Streaming** | Native Pub/Sub | Socket connection 1:1 |
+| **Multi-Node** | Yes (node filtering) | Multiple connections |
 
 ---
 
-## 📁 Estructura del Proyecto
+## 📁 Project Structure
 
 ```
 mod_event_agent/
 ├── src/
-│   ├── mod_event_agent.c       # Core del módulo FreeSWITCH
-│   ├── mod_event_agent.h       # Headers públicos
-│   ├── command_handler.c       # Procesamiento de comandos API
-│   ├── event_adapter.c         # Adaptador de eventos FreeSWITCH
-│   ├── event_agent_config.c    # Carga de configuración XML
+│   ├── mod_event_agent.c       # FreeSWITCH module core
+│   ├── mod_event_agent.h       # Public headers
+│   ├── command_handler.c       # API command processing
+│   ├── event_adapter.c         # FreeSWITCH event adapter
+│   ├── event_agent_config.c    # XML configuration loader
 │   ├── serialization.c         # JSON encoding/decoding
-│   ├── logger.c                # Sistema de logging
-│   ├── driver_interface.h      # Interface driver abstracta
+│   ├── logger.c                # Logging system
+│   ├── driver_interface.h      # Abstract driver interface
 │   └── drivers/
-│       ├── driver_nats.c       # Driver NATS (completo)
-│       ├── driver_kafka.c      # Driver Kafka (stub)
-│       ├── driver_rabbitmq.c   # Driver RabbitMQ (stub)
-│       └── driver_redis.c      # Driver Redis (stub)
+│       ├── driver_nats.c       # NATS driver (complete)
+│       ├── driver_kafka.c      # Kafka driver (stub)
+│       ├── driver_rabbitmq.c   # RabbitMQ driver (stub)
+│       └── driver_redis.c      # Redis driver (stub)
 │
 ├── lib/nats/                   # NATS C Client v3.8.2
-│   ├── libnats.so             # Biblioteca compartida
-│   └── libnats_static.a       # Biblioteca estática
+│   ├── libnats.so             # Shared library
+│   └── libnats_static.a       # Static library
 │
-├── tests/                      # Clientes de prueba
-│   ├── service_a_nats.c       # Cliente que envía comandos
-│   ├── service_b_nats.c       # Servidor que procesa comandos
-│   ├── simple_test.c          # Cliente multi-modo
-│   └── Makefile               # Compilación de tests
+├── tests/                      # Test clients
+│   ├── service_a_nats.c       # Client that sends commands
+│   ├── service_b_nats.c       # Server that processes commands
+│   ├── simple_test.c          # Multi-mode client
+│   └── Makefile               # Test compilation
 │
-├── examples/                   # Ejemplos de uso
-│   ├── call_monitor.c         # Monitor de llamadas
-│   ├── nats_subscriber.c      # Subscriber de eventos
-│   ├── nats_command_client.c  # Cliente de comandos
-│   └── README.md              # Documentación de ejemplos
+├── examples/                   # Usage examples
+│   ├── call_monitor.c         # Call monitor
+│   ├── nats_subscriber.c      # Event subscriber
+│   ├── nats_command_client.c  # Command client
+│   └── README.md              # Examples documentation
 │
 ├── docs/
-│   ├── API.md                 # 📖 Documentación completa de API
-│   └── ROADMAP.md             # 🗺️ Roadmap de drivers
+│   ├── API.md                 # 📖 Complete API documentation
+│   └── ROADMAP.md             # 🗺️ Drivers roadmap
 │
 ├── autoload_configs/
-│   └── mod_event_agent.conf.xml  # Configuración del módulo
+│   └── mod_event_agent.conf.xml  # Module configuration
 │
-├── docker-compose.dev.yaml    # Entorno de desarrollo
-├── Dockerfile                 # Build de módulo
+├── docker-compose.dev.yaml    # Development environment
+├── Dockerfile                 # Module build
 ├── Makefile                   # Build system
-├── install.sh                 # Script de instalación automática
-└── README.md                  # Este archivo
+├── install.sh                 # Automatic installation script
+└── README.md                  # This file
 ```
 
 ---
 
 ## 🧪 Testing
 
-### Performance Validada
+> **⚠️ DEVELOPMENT MODE**: This module is under active development. Currently there is only one functional test as a reference.
 
-- ✅ **100,000 requests**: 100% success rate
-- ✅ **50 concurrent clients**: Sin pérdida de paquetes
-- ✅ **Producción**: 1,055 requests, 99.7% success
-- ✅ **Latencia**: <100ms (promedio <1ms local)
+### Available Test
 
-### Ejecutar Tests
+#### `show_modules_test`
+NATS client that verifies module loading by sending the `show modules` command:
 
 ```bash
 cd tests
-make
 
-# Test básico
-LD_LIBRARY_PATH=../lib/nats ./bin/simple_test req freeswitch.api '{"command":"status"}'
+# Compile test
+gcc -o bin/show_modules_test src/show_modules_test.c -I../lib/nats -L../lib/nats -lnats -lpthread -lssl -lcrypto
 
-### 1. Microservicios Distribuidos
+# Execute
+LD_LIBRARY_PATH=../lib/nats:$LD_LIBRARY_PATH ./bin/show_modules_test
+```
+
+**Expected output:**
+```json
+{
+  "success": true,
+  "message": "API command executed",
+  "data": "type,name,ikey,filename\n...\ngeneric,mod_event_agent,mod_event_agent,/usr/local/freeswitch/mod/mod_event_agent.so\n...",
+  "timestamp": 1764915137308268,
+  "node_id": "fs-node-01"
+}
+```
+
+### Future Tests (Roadmap)
+
+More tests will be added to cover:
+- ✅ Generic API commands (`status`, `version`, `global_getvar`)
+- 🚧 Async commands (originate, hangup)
+- 🚧 Event streaming (FreeSWITCH event subscription)
+- 🚧 Performance benchmarks (throughput, latency)
+- 🚧 Multi-node scenarios (node filtering)
+- 🚧 Concurrent clients (race conditions)
+
+### Validated Performance (Production)
+
+- ✅ **100,000 requests**: 100% success rate
+- ✅ **50 concurrent clients**: No packet loss
+- ✅ **Production**: 1,055 requests, 99.7% success
+- ✅ **Latency**: <100ms (average <1ms local)
+
+### 1. Distributed Microservices
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │  Service A  │────▶│    NATS     │◀────│  Service B  │
@@ -355,9 +369,9 @@ LD_LIBRARY_PATH=../lib/nats ./bin/simple_test req freeswitch.api '{"command":"st
                     │   _agent    │
                     └─────────────┘
 
-- Múltiples servicios controlan FreeSWITCH sin dependencias directas
-- Escalabilidad horizontal del broker
-- Lenguajes heterogéneos (Node, Python, Go, Java, etc.)
+- Multiple services control FreeSWITCH without direct dependencies
+- Horizontal broker scalability
+- Heterogeneous languages (Node, Python, Go, Java, etc.)
 ```
 
 ### 2. Event-Driven Architecture
@@ -369,12 +383,12 @@ FreeSWITCH Events → NATS → [
     • CDR Storage (Java)
 ]
 
-- Event streaming en tiempo real
-- Procesamiento paralelo de eventos
-- Desacoplamiento total entre productores y consumidores
+- Real-time event streaming
+- Parallel event processing
+- Total decoupling between producers and consumers
 ```
 
-### 3. Call Center Distribuido
+### 3. Distributed Call Center
 ```
 ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
 │ FreeSWITCH 1 │  │ FreeSWITCH 2 │  │ FreeSWITCH 3 │
@@ -394,51 +408,51 @@ FreeSWITCH Events → NATS → [
         │   (Web UI)     │  │  Dashboard   │
         └────────────────┘  └──────────────┘
 
-- Control centralizado de múltiples nodos FreeSWITCH
-- Balanceo de carga geográfico
-- Monitoreo global en tiempo real
+- Centralized control of multiple FreeSWITCH nodes
+- Geographic load balancing
+- Real-time global monitoring
 ```
 
-### 4. Testing y CI/CD
+### 4. Testing & CI/CD
 ```bash
-# Test automatizado sin instalar ESL
+# Automated testing without installing ESL
 docker run --rm nats:alpine &
 ./tests/bin/service_a_nats '{"command":"status"}'
 
-# Integración continua simplificada
-# No requiere dependencias pesadas en pipelines
+# Simplified continuous integration
+# No heavy dependencies required in pipelines
 ```
 
 ---
 
-## 🛠️ Desarrollo de Drivers
+## 🛠️ Driver Development
 
-Ver [docs/ROADMAP.md](docs/ROADMAP.md) para detalles sobre implementación de nuevos drivers.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for details on implementing new drivers.
 
-### Implementar un Nuevo Driver
+### Implementing a New Driver
 
-1. **Copiar template**: `cp src/drivers/driver_nats.c src/drivers/driver_mydriver.c`
-2. **Implementar interface**: Completar todos los métodos de `event_driver_t`
-3. **Agregar a Makefile**: Añadir flag `WITH_MYDRIVER=yes`
-4. **Testing**: Crear tests en `tests/`
-5. **Documentación**: Actualizar docs/ROADMAP.md
+1. **Copy template**: `cp src/drivers/driver_nats.c src/drivers/driver_mydriver.c`
+2. **Implement interface**: Complete all `event_driver_t` methods
+3. **Add to Makefile**: Add `WITH_MYDRIVER=yes` flag
+4. **Testing**: Create tests in `tests/`
+5. **Documentation**: Update docs/ROADMAP.md
 
-### Interface del Driver
+### Driver Interface
 
 ```c
 typedef struct event_driver {
-    // Inicialización
+    // Initialization
     switch_status_t (*init)(const char *url, const char *node_id);
     
     // Cleanup
     void (*shutdown)(void);
     
-    // Comandos (request-reply)
+    // Commands (request-reply)
     switch_status_t (*subscribe_commands)(command_callback_t callback);
     switch_status_t (*send_command_response)(const char *reply_subject, 
                                              const char *json_response);
     
-    // Eventos (pub/sub)
+    // Events (pub/sub)
     switch_status_t (*publish_event)(const char *subject, 
                                      const char *json_payload);
     
@@ -449,52 +463,52 @@ typedef struct event_driver {
 
 ---
 
-## 📚 Documentación
+## 📚 Documentation
 
-- **[docs/API.md](docs/API.md)**: Referencia completa de la API
-  - Formato de payloads JSON
-  - Comandos disponibles (sync/async)
-  - Códigos de respuesta
-  - Ejemplos de uso
+- **[docs/API.md](docs/API.md)**: Complete API reference
+  - JSON payload formats
+  - Available commands (sync/async)
+  - Response codes
+  - Usage examples
 
-- **[docs/ROADMAP.md](docs/ROADMAP.md)**: Roadmap de drivers
-  - Estado actual de cada driver
-  - Guías de implementación
-  - Contribuciones
+- **[docs/ROADMAP.md](docs/ROADMAP.md)**: Drivers roadmap
+  - Current status of each driver
+  - Implementation guides
+  - Contributions
 
-- **[examples/README.md](examples/README.md)**: Ejemplos prácticos
-  - Cliente de comandos
-  - Monitor de eventos
-  - Casos de uso reales
-
----
-
-## 🤝 Contribuciones
-
-¡Las contribuciones son bienvenidas! Especialmente para:
-
-- **Nuevos Drivers**: Kafka, RabbitMQ, Redis
-- **Tests**: Casos de uso adicionales
-- **Documentación**: Ejemplos, tutoriales
-- **Optimizaciones**: Performance, memoria
-
-### Proceso de Contribución
-
-1. Fork del repositorio
-2. Crear branch: `git checkout -b feature/mi-feature`
-3. Commit cambios: `git commit -am 'Agrega nueva feature'`
-4. Push: `git push origin feature/mi-feature`
-5. Crear Pull Request
+- **[examples/README.md](examples/README.md)**: Practical examples
+  - Command client
+  - Event monitor
+  - Real-world use cases
 
 ---
 
-## 📄 Licencia
+## 🤝 Contributions
 
-MIT License - Ver [LICENSE](LICENSE) para detalles.
+Contributions are welcome! Especially for:
+
+- **New Drivers**: Kafka, RabbitMQ, Redis
+- **Tests**: Additional use cases
+- **Documentation**: Examples, tutorials
+- **Optimizations**: Performance, memory
+
+### Contribution Process
+
+1. Fork the repository
+2. Create branch: `git checkout -b feature/my-feature`
+3. Commit changes: `git commit -am 'Add new feature'`
+4. Push: `git push origin feature/my-feature`
+5. Create Pull Request
 
 ---
 
-## 🙏 Créditos
+## 📄 License
+
+MIT License - See [LICENSE](LICENSE) for details.
+
+---
+
+## 🙏 Credits
 
 - **FreeSWITCH**: https://freeswitch.org/
 - **NATS**: https://nats.io/
@@ -502,48 +516,48 @@ MIT License - Ver [LICENSE](LICENSE) para detalles.
 
 ---
 
-## 📞 Soporte
+## 📞 Support
 
 - **Issues**: https://github.com/zenozaga/freesweetch-agent-nats/issues
-- **Documentación**: [docs/](docs/)
-- **Ejemplos**: [examples/](examples/)
+- **Documentation**: [docs/](docs/)
+- **Examples**: [examples/](examples/)
 
 ---
 
-**Hecho con ❤️ para la comunidad FreeSWITCH**
+**Made with ❤️ for the FreeSWITCH community**
 > PUB freeswitch.api 20
 > {"command":"status"}
 ```
 
 ### 5. Multi-Node Clusters
 ```
-3 nodos FreeSWITCH con diferentes capacidades
+3 FreeSWITCH nodes with different capabilities
 - node_id filtering (server + client side)
 - Geo-routing (USA-East, USA-West, Europe)
 - Feature-routing (transcoding, recording, etc)
 ```
 
-Ver [API.md](API.md) sección "Multi-Node Deployments" para ejemplos.
+See [API.md](API.md) section "Multi-Node Deployments" for examples.
 
 ## 📖 Documentation
 
-- **[PHILOSOPHY.md](PHILOSOPHY.md)** - ⭐ Por qué ultra-liviano es mejor (comparación ESL vs NATS)
-- **[NATS_RAW_PROTOCOL.md](NATS_RAW_PROTOCOL.md)** - ⭐ Protocolo desde cero sin librerías
-- **[API.md](API.md)** - Referencia completa con multi-node support
-- **[STATUS.md](STATUS.md)** - Estado actual del proyecto
+- **[PHILOSOPHY.md](PHILOSOPHY.md)** - ⭐ Why ultra-lightweight is better (ESL vs NATS comparison)
+- **[NATS_RAW_PROTOCOL.md](NATS_RAW_PROTOCOL.md)** - ⭐ Protocol from scratch without libraries
+- **[API.md](API.md)** - Complete reference with multi-node support
+- **[STATUS.md](STATUS.md)** - Current project status
 
 ## 🔑 Key Advantages
 
-| Característica | Ventaja |
+| Feature | Advantage |
 |----------------|---------|
-| **Tamaño** | 750x más liviano que ESL |
-| **Dependencias** | Cero (solo libc estándar) |
-| **Portabilidad** | Compila en cualquier POSIX |
+| **Size** | 750x lighter than ESL |
+| **Dependencies** | Zero (only standard libc) |
+| **Portability** | Compiles on any POSIX |
 | **Debugging** | telnet/netcat/wireshark |
-| **Latencia** | 0.5-1ms (vs 2-5ms ESL) |
+| **Latency** | 0.5-1ms (vs 2-5ms ESL) |
 | **Throughput** | ~10K req/s (vs ~1K ESL) |
-| **Deployment** | Copiar binario de 10KB |
-| **Learning** | Código simple, educativo |
+| **Deployment** | Copy 10KB binary |
+| **Learning** | Simple, educational code |
 
 ## 📄 License
 
