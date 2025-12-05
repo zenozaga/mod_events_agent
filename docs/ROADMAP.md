@@ -1,36 +1,36 @@
 # ROADMAP - mod_event_agent Drivers
 
-Roadmap de desarrollo de drivers para `mod_event_agent`.
+Driver development roadmap for `mod_event_agent`.
 
 ---
 
-## 📋 Estado Actual
+## 📋 Current Status
 
-| Driver | Estado | Versión | Características | Notas |
+| Driver | Status | Version | Features | Notes |
 |--------|--------|---------|----------------|-------|
-| **NATS** | ✅ **Completo** | 1.0 | Request-Reply, Connection pooling, Auto-reconnect | Production-ready |
-| **Kafka** | 🚧 Stub | 0.1 | Interface definida | Requiere implementación |
-| **RabbitMQ** | 🚧 Stub | 0.1 | Interface definida | Requiere implementación |
-| **Redis** | 🚧 Stub | 0.1 | Interface definida | Requiere implementación |
+| **NATS** | ✅ **Complete** | 1.0 | Request-Reply, Connection pooling, Auto-reconnect | Production-ready |
+| **Kafka** | 🚧 Stub | 0.1 | Interface defined | Requires implementation |
+| **RabbitMQ** | 🚧 Stub | 0.1 | Interface defined | Requires implementation |
+| **Redis** | 🚧 Stub | 0.1 | Interface defined | Requires implementation |
 
 ---
 
-## ✅ Driver NATS (Completo)
+## ✅ NATS Driver (Complete)
 
-### Características Implementadas
+### Implemented Features
 
-- ✅ **Conexión**: Inicialización con URL configurable
-- ✅ **Request-Reply**: Comandos síncronos con respuestas
-- ✅ **Fire-and-Forget**: Comandos asíncronos sin respuesta
-- ✅ **Auto-Reconnect**: Reconexión automática con backoff exponencial
-- ✅ **Health Check**: Verificación de estado de conexión
-- ✅ **Node ID**: Identificación en clusters multi-nodo
-- ✅ **JSON Serialization**: Payloads estructurados
-- ✅ **Error Handling**: Manejo robusto de errores
-- ✅ **Statistics**: Contadores de requests/successes/failures
-- ✅ **Performance**: ~10,000 req/s, <1ms latencia local
+- ✅ **Connection**: Initialization with configurable URL
+- ✅ **Request-Reply**: Synchronous commands with responses
+- ✅ **Fire-and-Forget**: Asynchronous commands without response
+- ✅ **Auto-Reconnect**: Automatic reconnection with exponential backoff
+- ✅ **Health Check**: Connection status verification
+- ✅ **Node ID**: Identification in multi-node clusters
+- ✅ **JSON Serialization**: Structured payloads
+- ✅ **Error Handling**: Robust error management
+- ✅ **Statistics**: Counters for requests/successes/failures
+- ✅ **Performance**: ~10,000 req/s, <1ms local latency
 
-### Configuración
+### Configuration
 
 ```xml
 <param name="driver" value="nats"/>
@@ -41,22 +41,22 @@ Roadmap de desarrollo de drivers para `mod_event_agent`.
 <param name="nats-reconnect-wait" value="2000"/>
 ```
 
-### Dependencias
+### Dependencies
 
 - **NATS C Client**: v3.8.2
-- **Biblioteca**: `lib/nats/libnats.so` (shared) o `lib/nats/libnats_static.a` (static)
-- **Headers**: Incluidos en el proyecto
+- **Library**: `lib/nats/libnats.so` (shared) or `lib/nats/libnats_static.a` (static)
+- **Headers**: Included in project
 
 ### Testing
 
 ```bash
-# Compilar tests
+# Compile tests
 cd tests && make
 
-# Test básico
+# Basic test
 LD_LIBRARY_PATH=../lib/nats ./bin/service_a_nats '{"command":"status"}'
 
-# Test de stress
+# Stress test
 for i in {1..1000}; do
   LD_LIBRARY_PATH=../lib/nats ./bin/simple_test req freeswitch.api '{"command":"version"}'
 done
@@ -97,102 +97,102 @@ Soporte para Apache Kafka como backend de mensajería, permitiendo:
 <param name="kafka-batch-size" value="16384"/>
 ```
 
-### Dependencias Requeridas
+### Required Dependencies
 
 - **librdkafka**: C/C++ Apache Kafka client
-- **Versión**: >=1.9.0
-- **Instalación**: `apt install librdkafka-dev` o compilar desde source
+- **Version**: >=1.9.0
+- **Installation**: `apt install librdkafka-dev` or compile from source
 
-### Interface del Driver
+### Driver Interface
 
 ```c
-// driver_kafka.c - Métodos a implementar
+// driver_kafka.c - Methods to implement
 
 switch_status_t kafka_init(const char *brokers, const char *node_id) {
-    // 1. Crear configuración de Kafka
-    // 2. Inicializar producer
-    // 3. Inicializar consumer
-    // 4. Suscribirse a topic de comandos
-    // 5. Iniciar thread de polling
+    // 1. Create Kafka configuration
+    // 2. Initialize producer
+    // 3. Initialize consumer
+    // 4. Subscribe to command topic
+    // 5. Start polling thread
 }
 
 switch_status_t kafka_subscribe_commands(command_callback_t callback) {
     // 1. Consumer poll loop
-    // 2. Deserializar mensaje
-    // 3. Invocar callback con JSON
+    // 2. Deserialize message
+    // 3. Invoke callback with JSON
 }
 
 switch_status_t kafka_send_command_response(const char *reply_subject, 
                                             const char *json_response) {
-    // 1. Determinar partition key (node_id)
-    // 2. Producir mensaje a topic de respuestas
-    // 3. Flush si batch completo
+    // 1. Determine partition key (node_id)
+    // 2. Produce message to response topic
+    // 3. Flush if batch complete
 }
 
 switch_status_t kafka_publish_event(const char *subject, const char *json_payload) {
-    // 1. Mapear subject a topic
-    // 2. Producir evento
+    // 1. Map subject to topic
+    // 2. Produce event
 }
 
 void kafka_shutdown(void) {
     // 1. Flush pending messages
-    // 2. Destruir producer
-    // 3. Destruir consumer
+    // 2. Destroy producer
+    // 3. Destroy consumer
     // 4. Cleanup threads
 }
 
 switch_bool_t kafka_is_connected(void) {
-    // Verificar estado de producer y consumer
+    // Verify producer and consumer status
 }
 ```
 
 ### Testing Plan
 
 ```bash
-# Levantar Kafka local
+# Start local Kafka
 docker run -d --name kafka -p 9092:9092 apache/kafka:latest
 
-# Test básico
+# Basic test
 ./tests/bin/kafka_test_client '{"command":"status"}'
 
-# Test de throughput
+# Throughput test
 ./tests/bin/kafka_stress_test --messages 10000 --concurrency 50
 ```
 
-### Contribución
+### Contribution
 
-Para implementar el driver Kafka:
-1. Fork del repositorio
-2. Copiar `src/drivers/driver_nats.c` → `src/drivers/driver_kafka.c`
-3. Implementar funciones según interface arriba
-4. Agregar `WITH_KAFKA=yes` en Makefile
-5. Crear tests en `tests/kafka_test_client.c`
-6. Documentar en este ROADMAP
+To implement the Kafka driver:
+1. Fork the repository
+2. Copy `src/drivers/driver_nats.c` → `src/drivers/driver_kafka.c`
+3. Implement functions according to interface above
+4. Add `WITH_KAFKA=yes` in Makefile
+5. Create tests in `tests/kafka_test_client.c`
+6. Document in this ROADMAP
 7. Submit PR
 
 ---
 
 ## 🚧 Driver RabbitMQ (Roadmap)
 
-### Objetivo
+### Objective
 
-Soporte para RabbitMQ como backend de mensajería, permitiendo:
+Support for RabbitMQ as messaging backend, allowing:
 - Enterprise message queuing
-- Routing complejo (exchanges, bindings)
-- Garantías de entrega (acks, confirms)
-- Integración con sistemas existentes
+- Complex routing (exchanges, bindings)
+- Delivery guarantees (acks, confirms)
+- Integration with existing systems
 
-### Características Planeadas
+### Planned Features
 
-- 🔲 **Publisher**: Publicación a exchanges
-- 🔲 **Consumer**: Consumo desde queues
-- 🔲 **Routing**: Topic exchanges con routing keys
+- 🔲 **Publisher**: Publishing to exchanges
+- 🔲 **Consumer**: Consuming from queues
+- 🔲 **Routing**: Topic exchanges with routing keys
 - 🔲 **Acknowledgments**: Manual/automatic acks
-- 🔲 **Publisher Confirms**: Confirmación de entrega
-- 🔲 **Prefetch**: Control de flujo
-- 🔲 **Dead Letter**: Manejo de mensajes fallidos
+- 🔲 **Publisher Confirms**: Delivery confirmation
+- 🔲 **Prefetch**: Flow control
+- 🔲 **Dead Letter**: Failed message handling
 
-### Configuración Propuesta
+### Proposed Configuration
 
 ```xml
 <param name="driver" value="rabbitmq"/>
@@ -205,65 +205,65 @@ Soporte para RabbitMQ como backend de mensajería, permitiendo:
 <param name="rabbitmq-prefetch" value="10"/>
 ```
 
-### Dependencias Requeridas
+### Required Dependencies
 
 - **librabbitmq**: RabbitMQ C client (rabbitmq-c)
-- **Versión**: >=0.11.0
-- **Instalación**: `apt install librabbitmq-dev`
+- **Version**: >=0.11.0
+- **Installation**: `apt install librabbitmq-dev`
 
-### Interface del Driver
+### Driver Interface
 
 ```c
-// driver_rabbitmq.c - Métodos a implementar
+// driver_rabbitmq.c - Methods to implement
 
 switch_status_t rabbitmq_init(const char *url, const char *node_id) {
-    // 1. Conectar a RabbitMQ
-    // 2. Abrir channel
-    // 3. Declarar exchange
-    // 4. Declarar queue
-    // 5. Bind queue a exchange
-    // 6. Iniciar consumer
+    // 1. Connect to RabbitMQ
+    // 2. Open channel
+    // 3. Declare exchange
+    // 4. Declare queue
+    // 5. Bind queue to exchange
+    // 6. Start consumer
 }
 
 switch_status_t rabbitmq_subscribe_commands(command_callback_t callback) {
-    // 1. Basic.Consume en queue
-    // 2. Loop de recepción
-    // 3. Invocar callback
+    // 1. Basic.Consume on queue
+    // 2. Reception loop
+    // 3. Invoke callback
     // 4. Basic.Ack
 }
 
 switch_status_t rabbitmq_send_command_response(const char *reply_subject, 
                                                 const char *json_response) {
-    // 1. Basic.Publish con reply-to y correlation-id
+    // 1. Basic.Publish with reply-to and correlation-id
     // 2. Publisher confirm
 }
 
 switch_status_t rabbitmq_publish_event(const char *subject, const char *json_payload) {
-    // 1. Mapear subject a routing key
-    // 2. Basic.Publish a exchange
+    // 1. Map subject to routing key
+    // 2. Basic.Publish to exchange
 }
 
 void rabbitmq_shutdown(void) {
-    // 1. Cancelar consumer
-    // 2. Cerrar channel
-    // 3. Cerrar conexión
+    // 1. Cancel consumer
+    // 2. Close channel
+    // 3. Close connection
 }
 
 switch_bool_t rabbitmq_is_connected(void) {
-    // Verificar estado de conexión
+    // Check connection status
 }
 ```
 
 ### Testing Plan
 
 ```bash
-# Levantar RabbitMQ local
+# Start local RabbitMQ
 docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:management
 
-# Test básico
+# Basic test
 ./tests/bin/rabbitmq_test_client '{"command":"status"}'
 
-# Verificar en management UI
+# Verify in management UI
 # http://localhost:15672 (guest/guest)
 ```
 
@@ -271,25 +271,25 @@ docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:management
 
 ## 🚧 Driver Redis (Roadmap)
 
-### Objetivo
+### Objective
 
-Soporte para Redis como backend de mensajería, permitiendo:
-- Pub/Sub simple y rápido
-- Caching de respuestas
+Support for Redis as messaging backend, allowing:
+- Simple and fast Pub/Sub
+- Response caching
 - Rate limiting
-- Baja latencia (<0.5ms)
+- Low latency (<0.5ms)
 
-### Características Planeadas
+### Planned Features
 
-- 🔲 **Pub/Sub**: Redis Pub/Sub nativo
-- 🔲 **Streams**: Redis Streams para persistencia
-- 🔲 **List-based**: LPUSH/BRPOP para queues
-- 🔲 **Caching**: GET/SET para responses
-- 🔲 **Rate Limiting**: INCR/EXPIRE para throttling
-- 🔲 **Sentinel**: Alta disponibilidad
-- 🔲 **Cluster**: Sharding horizontal
+- 🔲 **Pub/Sub**: Native Redis Pub/Sub
+- 🔲 **Streams**: Redis Streams for persistence
+- 🔲 **List-based**: LPUSH/BRPOP for queues
+- 🔲 **Caching**: GET/SET for responses
+- 🔲 **Rate Limiting**: INCR/EXPIRE for throttling
+- 🔲 **Sentinel**: High availability
+- 🔲 **Cluster**: Horizontal sharding
 
-### Configuración Propuesta
+### Proposed Configuration
 
 ```xml
 <param name="driver" value="redis"/>
@@ -302,40 +302,40 @@ Soporte para Redis como backend de mensajería, permitiendo:
 <param name="redis-channel-events" value="freeswitch:events"/>
 ```
 
-### Dependencias Requeridas
+### Required Dependencies
 
 - **hiredis**: Redis C client
-- **Versión**: >=1.0.0
-- **Instalación**: `apt install libhiredis-dev`
+- **Version**: >=1.0.0
+- **Installation**: `apt install libhiredis-dev`
 
-### Interface del Driver
+### Driver Interface
 
 ```c
-// driver_redis.c - Métodos a implementar
+// driver_redis.c - Methods to implement
 
 switch_status_t redis_init(const char *url, const char *node_id) {
-    // 1. Conectar a Redis
-    // 2. Autenticar si password
+    // 1. Connect to Redis
+    // 2. Authenticate if password
     // 3. SELECT database
-    // 4. SUBSCRIBE a canales
-    // 5. Iniciar thread de lectura
+    // 4. SUBSCRIBE to channels
+    // 5. Start read thread
 }
 
 switch_status_t redis_subscribe_commands(command_callback_t callback) {
-    // 1. Loop de redisGetReply
-    // 2. Parse mensaje
-    // 3. Invocar callback
+    // 1. Loop of redisGetReply
+    // 2. Parse message
+    // 3. Invoke callback
 }
 
 switch_status_t redis_send_command_response(const char *reply_subject, 
                                             const char *json_response) {
-    // 1. PUBLISH a canal de respuesta
-    // 2. O SET con TTL para cache
+    // 1. PUBLISH to response channel
+    // 2. Or SET with TTL for cache
 }
 
 switch_status_t redis_publish_event(const char *subject, const char *json_payload) {
-    // 1. PUBLISH a canal de eventos
-    // 2. O XADD a stream
+    // 1. PUBLISH to event channel
+    // 2. Or XADD to stream
 }
 
 void redis_shutdown(void) {
@@ -352,33 +352,33 @@ switch_bool_t redis_is_connected(void) {
 ### Testing Plan
 
 ```bash
-# Levantar Redis local
+# Start local Redis
 docker run -d --name redis -p 6379:6379 redis:alpine
 
-# Test básico
+# Basic test
 ./tests/bin/redis_test_client '{"command":"status"}'
 
-# Monitor en tiempo real
+# Real-time monitor
 redis-cli MONITOR
 ```
 
 ---
 
-## 🛠️ Guía de Implementación
+## 🛠️ Implementation Guide
 
-### Pasos para Desarrollar un Nuevo Driver
+### Steps to Develop a New Driver
 
-1. **Setup Inicial**
+1. **Initial Setup**
    ```bash
    cd src/drivers
    cp driver_nats.c driver_mydriver.c
    ```
 
-2. **Implementar Interface**
-   - Completar todos los métodos de `event_driver_t`
-   - Ver `driver_interface.h` para referencia
+2. **Implement Interface**
+   - Complete all methods of `event_driver_t`
+   - See `driver_interface.h` for reference
 
-3. **Agregar a Makefile**
+3. **Add to Makefile**
    ```makefile
    ifdef WITH_MYDRIVER
    DRIVER_SRC += src/drivers/driver_mydriver.c
@@ -386,59 +386,59 @@ redis-cli MONITOR
    endif
    ```
 
-4. **Crear Tests**
+4. **Create Tests**
    ```bash
    cd tests
    cp service_a_nats.c service_a_mydriver.c
-   # Modificar conexión y subjects
+   # Modify connection and subjects
    ```
 
-5. **Documentación**
-   - Actualizar este ROADMAP
-   - Agregar ejemplos en `examples/`
-   - Documentar configuración XML
+5. **Documentation**
+   - Update this ROADMAP
+   - Add examples in `examples/`
+   - Document XML configuration
 
 6. **Submit PR**
-   - Tests pasando
-   - Documentación completa
-   - Changelog actualizado
+   - Tests passing
+   - Complete documentation
+   - Updated changelog
 
 ---
 
-## 📊 Priorización
+## 📊 Prioritization
 
-### Alta Prioridad
-1. **Kafka** - Demanda enterprise, event streaming masivo
-2. **RabbitMQ** - Ecosistema maduro, muchos usuarios
+### High Priority
+1. **Kafka** - Enterprise demand, massive event streaming
+2. **RabbitMQ** - Mature ecosystem, many users
 
-### Media Prioridad
-3. **Redis** - Simple, rápido, bueno para MVP
+### Medium Priority
+3. **Redis** - Simple, fast, good for MVP
 
-### Baja Prioridad
+### Low Priority
 4. **AWS SQS** - Cloud-specific
 5. **Google Pub/Sub** - Cloud-specific
 6. **Azure Service Bus** - Cloud-specific
 
 ---
 
-## 🤝 Cómo Contribuir
+## 🤝 How to Contribute
 
-¿Interesado en implementar un driver?
+Interested in implementing a driver?
 
-1. **Discusión**: Abre un issue para discutir el diseño
-2. **Fork**: Fork del repositorio
+1. **Discussion**: Open an issue to discuss the design
+2. **Fork**: Fork the repository
 3. **Branch**: `git checkout -b feature/driver-kafka`
-4. **Implementación**: Sigue la guía arriba
-5. **Tests**: Asegura 100% de cobertura
-6. **PR**: Crea Pull Request con descripción detallada
+4. **Implementation**: Follow the guide above
+5. **Tests**: Ensure 100% coverage
+6. **PR**: Create Pull Request with detailed description
 
 ---
 
-## 📞 Contacto
+## 📞 Contact
 
 - **Issues**: https://github.com/zenozaga/freesweetch-agent-nats/issues
-- **Discussions**: Para preguntas sobre implementación
+- **Discussions**: For questions about implementation
 
 ---
 
-**Última actualización**: Diciembre 2025
+**Last updated**: December 2025

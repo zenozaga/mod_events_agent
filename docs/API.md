@@ -1,23 +1,23 @@
 # API Reference - mod_event_agent
 
-Documentación completa de la API para control de FreeSWITCH mediante `mod_event_agent`.
+Complete API documentation for FreeSWITCH control via `mod_event_agent`.
 
 ---
 
-## 📋 Tabla de Contenidos
+## 📋 Table of Contents
 
-- [Arquitectura de Comunicación](#arquitectura-de-comunicación)
-- [Formato de Mensajes](#formato-de-mensajes)
-- [Comandos API](#comandos-api)
-- [Códigos de Respuesta](#códigos-de-respuesta)
-- [Ejemplos de Uso](#ejemplos-de-uso)
-- [Manejo de Errores](#manejo-de-errores)
+- [Communication Architecture](#communication-architecture)
+- [Message Format](#message-format)
+- [API Commands](#api-commands)
+- [Response Codes](#response-codes)
+- [Usage Examples](#usage-examples)
+- [Error Handling](#error-handling)
 
 ---
 
-## 🏗️ Arquitectura de Comunicación
+## 🏗️ Communication Architecture
 
-### Patrón Request-Reply
+### Request-Reply Pattern
 
 ```
 ┌──────────┐                      ┌──────────┐                    ┌────────────┐
@@ -40,62 +40,62 @@ Documentación completa de la API para control de FreeSWITCH mediante `mod_event
      └─────────────────────────────────┴────────────────────────────────┘
 ```
 
-### Subjects (Tópicos) Disponibles
+### Available Subjects (Topics)
 
-| Subject | Tipo | Descripción |
+| Subject | Type | Description |
 |---------|------|-------------|
-| `freeswitch.api` | Request-Reply | Comandos síncronos con respuesta |
-| `freeswitch.cmd.async.*` | Fire-and-Forget | Comandos asíncronos sin respuesta |
-| `freeswitch.events.*` | Pub/Sub | Eventos de FreeSWITCH (futuro) |
+| `freeswitch.api` | Request-Reply | Synchronous commands with response |
+| `freeswitch.cmd.async.*` | Fire-and-Forget | Asynchronous commands without response |
+| `freeswitch.events.*` | Pub/Sub | FreeSWITCH events (future) |
 
 ---
 
-## 📦 Formato de Mensajes
+## 📦 Message Format
 
-### Request (Cliente → FreeSWITCH)
-
-```json
-{
-  "command": "string",      // Comando API de FreeSWITCH (requerido)
-  "args": "string",         // Argumentos del comando (opcional)
-  "node_id": "string"       // Target node ID para clusters (opcional)
-}
-```
-
-#### Campos
-
-- **`command`** (string, requerido): Nombre del comando API de FreeSWITCH
-- **`args`** (string, opcional): Argumentos adicionales para el comando
-- **`node_id`** (string, opcional): ID del nodo específico en clusters multi-nodo
-
-### Response (FreeSWITCH → Cliente)
+### Request (Client → FreeSWITCH)
 
 ```json
 {
-  "success": boolean,       // true si comando ejecutó correctamente
-  "message": "string",      // Mensaje descriptivo del resultado
-  "data": "string",         // Respuesta del comando (puede ser null)
-  "timestamp": number,      // Unix timestamp en microsegundos
-  "node_id": "string"       // ID del nodo que procesó el comando
+  "command": "string",      // FreeSWITCH API command (required)
+  "args": "string",         // Command arguments (optional)
+  "node_id": "string"       // Target node ID for clusters (optional)
 }
 ```
 
-#### Campos
+#### Fields
 
-- **`success`** (boolean): Indica si el comando se ejecutó sin errores
-- **`message`** (string): Descripción del resultado o error
-- **`data`** (string): Salida del comando FreeSWITCH (formato depende del comando)
-- **`timestamp`** (number): Timestamp Unix en microsegundos
-- **`node_id`** (string): Identificador del nodo FreeSWITCH que procesó
+- **`command`** (string, required): FreeSWITCH API command name
+- **`args`** (string, optional): Additional command arguments
+- **`node_id`** (string, optional): Specific node ID in multi-node clusters
+
+### Response (FreeSWITCH → Client)
+
+```json
+{
+  "success": boolean,       // true if command executed successfully
+  "message": "string",      // Descriptive result message
+  "data": "string",         // Command response (can be null)
+  "timestamp": number,      // Unix timestamp in microseconds
+  "node_id": "string"       // ID of the node that processed the command
+}
+```
+
+#### Fields
+
+- **`success`** (boolean): Indicates if command executed without errors
+- **`message`** (string): Description of result or error
+- **`data`** (string): FreeSWITCH command output (format depends on command)
+- **`timestamp`** (number): Unix timestamp in microseconds
+- **`node_id`** (string): FreeSWITCH node identifier that processed the command
 
 ---
 
-## 🎯 Comandos API
+## 🎯 API Commands
 
-### Comandos de Sistema
+### System Commands
 
 #### `status`
-Obtiene el estado del sistema FreeSWITCH.
+Get FreeSWITCH system status.
 
 **Request:**
 ```json
@@ -114,7 +114,7 @@ Obtiene el estado del sistema FreeSWITCH.
 ```
 
 #### `version`
-Obtiene la versión de FreeSWITCH.
+Get FreeSWITCH version.
 
 **Request:**
 ```json
@@ -133,7 +133,7 @@ Obtiene la versión de FreeSWITCH.
 ```
 
 #### `uptime`
-Obtiene el tiempo de actividad del sistema.
+Get system uptime.
 
 **Request:**
 ```json
@@ -153,10 +153,10 @@ Obtiene el tiempo de actividad del sistema.
 
 ---
 
-### Comandos de Variables
+### Variable Commands
 
 #### `global_getvar`
-Obtiene el valor de una variable global.
+Get global variable value.
 
 **Request:**
 ```json
@@ -178,7 +178,7 @@ Obtiene el valor de una variable global.
 ```
 
 #### `global_setvar`
-Establece una variable global.
+Set a global variable.
 
 **Request:**
 ```json
@@ -201,10 +201,10 @@ Establece una variable global.
 
 ---
 
-### Comandos de Información
+### Information Commands
 
 #### `show modules`
-Lista todos los módulos cargados.
+List all loaded modules.
 
 **Request:**
 ```json
@@ -226,7 +226,7 @@ Lista todos los módulos cargados.
 ```
 
 #### `show channels`
-Lista todos los canales activos.
+List all active channels.
 
 **Request:**
 ```json
@@ -248,7 +248,7 @@ Lista todos los canales activos.
 ```
 
 #### `show calls`
-Lista todas las llamadas activas.
+List all active calls.
 
 **Request:**
 ```json
@@ -271,10 +271,10 @@ Lista todas las llamadas activas.
 
 ---
 
-### Comandos SIP (Sofia)
+### SIP Commands (Sofia)
 
 #### `sofia status`
-Obtiene el estado de todos los perfiles SIP.
+Get status of all SIP profiles.
 
 **Request:**
 ```json
@@ -296,7 +296,7 @@ Obtiene el estado de todos los perfiles SIP.
 ```
 
 #### `sofia status profile <name>`
-Obtiene el estado de un perfil SIP específico.
+Get status of a specific SIP profile.
 
 **Request:**
 ```json
@@ -308,10 +308,10 @@ Obtiene el estado de un perfil SIP específico.
 
 ---
 
-### Comandos de Llamadas
+### Call Commands
 
 #### `originate`
-Origina una nueva llamada.
+Originate a new call.
 
 **Request:**
 ```json
@@ -333,7 +333,7 @@ Origina una nueva llamada.
 ```
 
 #### `uuid_kill`
-Finaliza una llamada por UUID.
+Terminate a call by UUID.
 
 **Request:**
 ```json
@@ -355,7 +355,7 @@ Finaliza una llamada por UUID.
 ```
 
 #### `hupall`
-Finaliza todas las llamadas activas.
+Terminate all active calls.
 
 **Request:**
 ```json
@@ -378,10 +378,10 @@ Finaliza todas las llamadas activas.
 
 ---
 
-### Comandos de Módulos
+### Module Commands
 
 #### `load`
-Carga un módulo dinámicamente.
+Load a module dynamically.
 
 **Request:**
 ```json
@@ -403,7 +403,7 @@ Carga un módulo dinámicamente.
 ```
 
 #### `unload`
-Descarga un módulo.
+Unload a module.
 
 **Request:**
 ```json
@@ -425,7 +425,7 @@ Descarga un módulo.
 ```
 
 #### `reload`
-Recarga un módulo.
+Reload a module.
 
 **Request:**
 ```json
@@ -448,29 +448,29 @@ Recarga un módulo.
 
 ---
 
-## 📊 Códigos de Respuesta
+## 📊 Response Codes
 
 ### Success States
 
-| Estado | `success` | Descripción |
+| State | `success` | Description |
 |--------|-----------|-------------|
-| Comando ejecutado | `true` | El comando se ejecutó correctamente |
-| Comando sin salida | `true` | Comando exitoso pero sin datos de retorno (`data: null`) |
+| Command executed | `true` | Command executed successfully |
+| Command without output | `true` | Successful command but no return data (`data: null`) |
 
 ### Error States
 
-| Estado | `success` | `message` | Descripción |
+| State | `success` | `message` | Description |
 |--------|-----------|-----------|-------------|
-| JSON inválido | `false` | `"Invalid JSON format"` | El payload no es JSON válido |
-| Campo faltante | `false` | `"Missing 'command' field"` | Falta el campo `command` en el JSON |
-| Comando inválido | `false` | `"API command failed"` | El comando no existe o falló su ejecución |
-| Error interno | `false` | `"Internal error"` | Error interno del módulo o FreeSWITCH |
+| Invalid JSON | `false` | `"Invalid JSON format"` | Payload is not valid JSON |
+| Missing field | `false` | `"Missing 'command' field"` | `command` field missing in JSON |
+| Invalid command | `false` | `"API command failed"` | Command doesn't exist or failed execution |
+| Internal error | `false` | `"Internal error"` | Module or FreeSWITCH internal error |
 
 ---
 
-## 💡 Ejemplos de Uso
+## 💡 Usage Examples
 
-### Ejemplo 1: Cliente Básico en C
+### Example 1: Basic C Client
 
 ```c
 #include <stdio.h>
@@ -497,7 +497,7 @@ int main() {
 }
 ```
 
-### Ejemplo 2: Cliente en Python
+### Example 2: Python Client
 
 ```python
 import asyncio
@@ -508,11 +508,11 @@ async def main():
     nc = NATS()
     await nc.connect("nats://localhost:4222")
     
-    # Enviar comando
+    # Send command
     request = json.dumps({"command": "status"})
     response = await nc.request("freeswitch.api", request.encode(), timeout=5)
     
-    # Procesar respuesta
+    # Process response
     data = json.loads(response.data.decode())
     print(f"Success: {data['success']}")
     print(f"Data: {data['data']}")
@@ -523,7 +523,7 @@ if __name__ == '__main__':
     asyncio.run(main())
 ```
 
-### Ejemplo 3: Cliente en Node.js
+### Example 3: Node.js Client
 
 ```javascript
 const { connect, StringCodec } = require('nats');
@@ -532,11 +532,11 @@ async function main() {
     const nc = await connect({ servers: 'nats://localhost:4222' });
     const sc = StringCodec();
     
-    // Enviar comando
+    // Send command
     const request = JSON.stringify({ command: 'status' });
     const response = await nc.request('freeswitch.api', sc.encode(request), { timeout: 5000 });
     
-    // Procesar respuesta
+    // Process response
     const data = JSON.parse(sc.decode(response.data));
     console.log('Success:', data.success);
     console.log('Data:', data.data);
@@ -547,24 +547,24 @@ async function main() {
 main();
 ```
 
-### Ejemplo 4: CLI con curl-like usando simple_test
+### Example 4: CLI with curl-like using simple_test
 
 ```bash
-# Status del sistema
+# System status
 LD_LIBRARY_PATH=./lib/nats ./tests/bin/simple_test req freeswitch.api '{"command":"status"}'
 
-# Versión
+# Version
 LD_LIBRARY_PATH=./lib/nats ./tests/bin/simple_test req freeswitch.api '{"command":"version"}'
 
-# Variable global
+# Global variable
 LD_LIBRARY_PATH=./lib/nats ./tests/bin/simple_test req freeswitch.api '{"command":"global_getvar","args":"hostname"}'
 ```
 
 ---
 
-## 🚨 Manejo de Errores
+## 🚨 Error Handling
 
-### Error: JSON Inválido
+### Error: Invalid JSON
 
 **Request:**
 ```
@@ -582,7 +582,7 @@ This is not JSON
 }
 ```
 
-### Error: Comando Faltante
+### Error: Missing Command
 
 **Request:**
 ```json
@@ -602,7 +602,7 @@ This is not JSON
 }
 ```
 
-### Error: Comando Inválido
+### Error: Invalid Command
 
 **Request:**
 ```json
@@ -624,27 +624,27 @@ This is not JSON
 
 ---
 
-## 🔒 Consideraciones de Seguridad
+## 🔒 Security Considerations
 
-1. **Autenticación NATS**: Configure autenticación en NATS Server
-2. **TLS/SSL**: Use conexiones seguras en producción (`nats://` → `tls://`)
-3. **ACLs**: Restrinja qué clientes pueden publicar en `freeswitch.*`
-4. **Rate Limiting**: Implemente limitación de tasa en el broker
-5. **Input Validation**: Valide todos los comandos antes de ejecutar
+1. **NATS Authentication**: Configure authentication on NATS Server
+2. **TLS/SSL**: Use secure connections in production (`nats://` → `tls://`)
+3. **ACLs**: Restrict which clients can publish to `freeswitch.*`
+4. **Rate Limiting**: Implement rate limiting on the broker
+5. **Input Validation**: Validate all commands before execution
 
 ---
 
 ## 📈 Performance Tips
 
-1. **Connection Pooling**: Reutilice conexiones NATS
-2. **Batch Requests**: Agrupe múltiples comandos cuando sea posible
-3. **Async Commands**: Use comandos asíncronos para operaciones fire-and-forget
-4. **Timeout Adecuado**: Configure timeouts según su red (recomendado: 5-10s)
-5. **Request Buffering**: Implemente buffering en cliente para alta carga
+1. **Connection Pooling**: Reuse NATS connections
+2. **Batch Requests**: Group multiple commands when possible
+3. **Async Commands**: Use asynchronous commands for fire-and-forget operations
+4. **Adequate Timeout**: Configure timeouts according to your network (recommended: 5-10s)
+5. **Request Buffering**: Implement buffering in client for high load
 
 ---
 
-## 🔗 Referencias
+## 🔗 References
 
 - **FreeSWITCH API**: https://freeswitch.org/confluence/display/FREESWITCH/mod_commands
 - **NATS Protocol**: https://docs.nats.io/reference/reference-protocols/nats-protocol
@@ -652,4 +652,4 @@ This is not JSON
 
 ---
 
-**Última actualización**: Diciembre 2025
+**Last updated**: December 2025

@@ -1,68 +1,68 @@
 # Examples - mod_event_agent
 
-Ejemplos prácticos de clientes para interactuar con FreeSWITCH mediante `mod_event_agent`.
+Practical client examples for interacting with FreeSWITCH using `mod_event_agent`.
 
 ---
 
-## 📋 Ejemplos Disponibles
+## 📋 Available Examples
 
-| Ejemplo | Lenguaje | Descripción | Dificultad |
+| Example | Language | Description | Difficulty |
 |---------|----------|-------------|------------|
-| **nats_command_client** | C | Cliente básico request-reply | ⭐ Fácil |
-| **nats_subscriber** | C | Subscriber de eventos (futuro) | ⭐ Fácil |
-| **call_monitor** | C | Monitor de llamadas en tiempo real | ⭐⭐ Media |
-| **Tests integrados** | C | Clientes de test completos | ⭐⭐ Media |
+| **nats_command_client** | C | Basic request-reply client | ⭐ Easy |
+| **nats_subscriber** | C | Event subscriber (future) | ⭐ Easy |
+| **call_monitor** | C | Real-time call monitor | ⭐⭐ Medium |
+| **Integrated tests** | C | Complete test clients | ⭐⭐ Medium |
 
 ---
 
 ## 🚀 Quick Start
 
-### Opción 1: Usar Clientes de Test (Recomendado)
+### Option 1: Use Test Clients (Recommended)
 
-Los clientes más completos están en `/tests`:
+The most complete clients are in `/tests`:
 
 ```bash
 cd tests
 make
 
-# Cliente que envía comandos
+# Client that sends commands
 LD_LIBRARY_PATH=../lib/nats ./bin/service_a_nats '{"command":"status"}'
 
-# Cliente interactivo
+# Interactive client
 LD_LIBRARY_PATH=../lib/nats ./bin/service_a_nats
 > {"command":"version"}
 > {"command":"show","args":"channels"}
 > quit
 
-# Cliente multi-modo
+# Multi-mode client
 LD_LIBRARY_PATH=../lib/nats ./bin/simple_test req freeswitch.api '{"command":"status"}'
 ```
 
-### Opción 2: Compilar Ejemplos
+### Option 2: Compile Examples
 
 ```bash
 cd examples
 make
 
-# Cliente básico
+# Basic client
 ./nats_command_client
 ```
 
 ---
 
-## 📖 Ejemplos Detallados
+## 📖 Detailed Examples
 
 ### 1. nats_command_client.c
 
-Cliente básico en C que demuestra el patrón request-reply.
+Basic C client demonstrating request-reply pattern.
 
-**Características:**
-- Conexión a NATS
-- Envío de comandos JSON
-- Recepción de respuestas
-- Manejo de errores
+**Features:**
+- NATS connection
+- JSON command sending
+- Response reception
+- Error handling
 
-**Código:**
+**Code:**
 ```c
 #include <nats/nats.h>
 #include <stdio.h>
@@ -96,7 +96,7 @@ int main() {
 }
 ```
 
-**Compilar:**
+**Compile:**
 ```bash
 gcc -o nats_command_client nats_command_client.c \
     -I../lib/nats/include \
@@ -104,7 +104,7 @@ gcc -o nats_command_client nats_command_client.c \
     -Wl,-rpath,../lib/nats
 ```
 
-**Ejecutar:**
+**Execute:**
 ```bash
 ./nats_command_client
 ```
@@ -113,14 +113,14 @@ gcc -o nats_command_client nats_command_client.c \
 
 ### 2. nats_subscriber.c
 
-Subscriber de eventos de FreeSWITCH (preparado para futura implementación).
+FreeSWITCH event subscriber (prepared for future implementation).
 
-**Características:**
-- Suscripción a eventos
-- Deserialización JSON
-- Procesamiento en tiempo real
+**Features:**
+- Event subscription
+- JSON deserialization
+- Real-time processing
 
-**Uso futuro:**
+**Future usage:**
 ```bash
 ./nats_subscriber freeswitch.events.CHANNEL_CREATE
 ./nats_subscriber "freeswitch.events.*"
@@ -130,35 +130,35 @@ Subscriber de eventos de FreeSWITCH (preparado para futura implementación).
 
 ### 3. call_monitor.c
 
-Monitor completo de llamadas en tiempo real.
+Complete real-time call monitor.
 
-**Características:**
-- Dashboard de llamadas activas
-- Estadísticas en tiempo real
-- Alertas de eventos importantes
+**Features:**
+- Active calls dashboard
+- Real-time statistics
+- Important event alerts
 
-**Compilar:**
+**Compile:**
 ```bash
 cd examples
 make call_monitor
 ```
 
-**Ejecutar:**
+**Execute:**
 ```bash
 ./call_monitor nats://localhost:4222
 ```
 
 ---
 
-## 💡 Casos de Uso Prácticos
+## 💡 Practical Use Cases
 
-### Caso 1: CLI Simple
+### Case 1: Simple CLI
 
-Crear un CLI para control rápido de FreeSWITCH:
+Create a CLI for quick FreeSWITCH control:
 
 ```bash
 #!/bin/bash
-# fs-cli: CLI simple para FreeSWITCH
+# fs-cli: Simple CLI for FreeSWITCH
 
 NATS_URL="nats://localhost:4222"
 SUBJECT="freeswitch.api"
@@ -179,7 +179,7 @@ case "$1" in
 esac
 ```
 
-**Usar:**
+**Use:**
 ```bash
 chmod +x fs-cli
 ./fs-cli status
@@ -188,9 +188,9 @@ chmod +x fs-cli
 
 ---
 
-### Caso 2: Monitor de Llamadas
+### Case 2: Call Monitor
 
-Dashboard simple en Python:
+Simple dashboard in Python:
 
 ```python
 #!/usr/bin/env python3
@@ -204,16 +204,16 @@ async def monitor_calls():
     await nc.connect("nats://localhost:4222")
     
     while True:
-        # Obtener llamadas activas
+        # Get active calls
         request = json.dumps({"command": "show", "args": "calls"})
         response = await nc.request("freeswitch.api", request.encode(), timeout=2)
         
         data = json.loads(response.data.decode())
         if data['success']:
-            print(f"\n[{datetime.now()}] Llamadas Activas:")
+            print(f"\n[{datetime.now()}] Active Calls:")
             print(data['data'])
         
-        await asyncio.sleep(5)  # Actualizar cada 5 segundos
+        await asyncio.sleep(5)  # Update every 5 seconds
     
     await nc.close()
 
@@ -223,9 +223,9 @@ if __name__ == '__main__':
 
 ---
 
-### Caso 3: Webhook Processor
+### Case 3: Webhook Processor
 
-Procesar webhooks y ejecutar comandos en FreeSWITCH:
+Process webhooks and execute commands in FreeSWITCH:
 
 ```javascript
 // webhook-processor.js
@@ -263,9 +263,9 @@ init().then(() => {
 
 ---
 
-### Caso 4: Integración con CRM
+### Case 4: CRM Integration
 
-Sincronizar llamadas con CRM:
+Synchronize calls with CRM:
 
 ```python
 #!/usr/bin/env python3
@@ -277,12 +277,12 @@ import requests
 CRM_API = "https://crm.example.com/api/calls"
 
 async def log_call_to_crm(call_data):
-    """Enviar información de llamada al CRM"""
+    """Send call information to CRM"""
     response = requests.post(CRM_API, json=call_data)
     return response.status_code == 200
 
 async def originate_from_crm(customer_phone, agent_extension):
-    """Originar llamada desde CRM"""
+    """Originate call from CRM"""
     nc = NATS()
     await nc.connect("nats://localhost:4222")
     
@@ -295,7 +295,7 @@ async def originate_from_crm(customer_phone, agent_extension):
     data = json.loads(response.data.decode())
     
     if data['success']:
-        # Log en CRM
+        # Log in CRM
         await log_call_to_crm({
             'agent': agent_extension,
             'customer': customer_phone,
@@ -306,15 +306,15 @@ async def originate_from_crm(customer_phone, agent_extension):
     await nc.close()
     return data
 
-# Uso desde CRM webhook:
+# Usage from CRM webhook:
 # POST /api/originate {"customer_phone":"5551234567","agent_extension":"1000"}
 ```
 
 ---
 
-## 🔧 Compilación de Ejemplos
+## 🔧 Example Compilation
 
-### Makefile para Ejemplos
+### Makefile for Examples
 
 ```makefile
 # examples/Makefile
@@ -343,7 +343,7 @@ clean:
 .PHONY: all clean
 ```
 
-**Compilar:**
+**Compile:**
 ```bash
 cd examples
 make
@@ -351,11 +351,11 @@ make
 
 ---
 
-## 📚 Referencias
+## 📚 References
 
-- **[docs/API.md](../docs/API.md)**: Documentación completa de la API
-- **[tests/](../tests/)**: Clientes de test más completos
-- **[README.md](../README.md)**: Documentación principal del módulo
+- **[docs/API.md](../docs/API.md)**: Complete API documentation
+- **[tests/](../tests/)**: More complete test clients
+- **[README.md](../README.md)**: Main module documentation
 
 ---
 
@@ -364,36 +364,36 @@ make
 ### Error: "Cannot connect to NATS"
 
 ```bash
-# Verificar que NATS esté corriendo
+# Verify NATS is running
 docker ps | grep nats
 
-# O verificar puerto
+# Or check port
 netstat -an | grep 4222
 ```
 
 ### Error: "Shared library not found"
 
 ```bash
-# Agregar al LD_LIBRARY_PATH
+# Add to LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=/path/to/lib/nats:$LD_LIBRARY_PATH
 
-# O usar RPATH en compilación
+# Or use RPATH in compilation
 gcc ... -Wl,-rpath,/path/to/lib/nats
 ```
 
 ### Error: "No response from FreeSWITCH"
 
 ```bash
-# Verificar que mod_event_agent esté cargado
+# Verify mod_event_agent is loaded
 docker exec -it freeswitch fs_cli -x "module_exists mod_event_agent"
 
-# Ver logs
+# View logs
 docker logs freeswitch | grep event_agent
 ```
 
 ---
 
-**Última actualización**: Diciembre 2025
+**Last updated**: December 2025
 
 ---
 
