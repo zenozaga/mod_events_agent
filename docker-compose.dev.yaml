@@ -33,7 +33,7 @@ services:
     networks:
       - fs_agent
     volumes:
-      - ./docker-store/postgres:/var/lib/postgresql/data
+      - ./.docker-store/postgres:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
@@ -106,8 +106,8 @@ services:
       - NATS_PORT=4222
       - AGENT_NODE_ID=agent-node-1
     volumes:
-      - ./docker-store/freeswitch/sounds:/usr/local/freeswitch/sounds
-      - ./docker-store/freeswitch/recordings:/usr/local/freeswitch/recordings
+      - ./.docker-store/freeswitch/sounds:/usr/local/freeswitch/sounds
+      - ./.docker-store/freeswitch/recordings:/usr/local/freeswitch/recordings
       - ./autoload_configs/mod_event_agent.conf.xml:/usr/local/freeswitch/conf/autoload_configs/mod_event_agent.conf.xml:ro
       - ./:/workspace
     restart: unless-stopped
