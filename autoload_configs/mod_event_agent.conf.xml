@@ -1,162 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration name="event_agent.conf" description="Event Agent Module - Message Broker Integration">
-  
-  <!-- 
-    mod_event_agent: Permite control y monitoreo de FreeSWITCH mediante message brokers
-    
-    Drivers Soportados:
-    - nats:      NATS.io (completo) - Alta performance, baja latencia
-    - kafka:     Apache Kafka (roadmap) - Event streaming masivo
-    - rabbitmq:  RabbitMQ (roadmap) - Enterprise messaging
-    - redis:     Redis Pub/Sub (roadmap) - Simple y rápido
-  -->
-  
   <settings>
     
-    <!-- ═══════════════════════════════════════════════════════════════════════
-         DRIVER SELECTION
-         ═══════════════════════════════════════════════════════════════════════ -->
-    
-    <!-- Driver activo: nats | kafka | rabbitmq | redis -->
+    <!-- Driver: nats | kafka | rabbitmq | redis -->
     <param name="driver" value="nats"/>
     
+    <!-- NATS URL - Variables: NATS_HOST, NATS_PORT -->
+    <param name="url" value="nats://$${nats_host}:$${nats_port}"/>
     
-    <!-- ═══════════════════════════════════════════════════════════════════════
-         NATS DRIVER CONFIGURATION
-         ═══════════════════════════════════════════════════════════════════════ -->
-    
-    <!-- URL del servidor NATS
-         Formato: nats://host:port
-         Ejemplos:
-           - nats://localhost:4222           (local)
-           - nats://nats-server:4222         (docker network)
-           - nats://user:pass@nats-server    (autenticación básica)
-           - tls://nats-server:4222          (TLS/SSL)
-    -->
-    <param name="url" value="nats://agent-dev-nats:4222"/>
-    
-    <!-- Autenticación con Token (opcional)
-         Si tu NATS Server requiere token de autenticación
-    -->
+    <!-- NATS Authentication (optional) -->
     <param name="token" value=""/>
+    <param name="nkey_seed" value=""/>
     
-    <!-- Autenticación con NKey (opcional)
-         Para autenticación basada en claves públicas/privadas
-    -->
-    <param name="nkey" value=""/>
-    
-    <!-- Habilitar TLS/SSL (opcional)
-         Valores: true | false
-         Si es true, usa tls:// en la URL
-    -->
-    <param name="tls" value="false"/>
-    
-    <!-- Timeout de conexión (milisegundos)
-         Tiempo máximo para establecer conexión inicial
-    -->
-    <param name="nats-timeout" value="5000"/>
-    
-    <!-- Máximo de intentos de reconexión
-         0 = infinitos, N = número de intentos
-    -->
-    <param name="nats-max-reconnect" value="60"/>
-    
-    <!-- Tiempo de espera entre reconexiones (milisegundos)
-         Backoff exponencial aplicado automáticamente
-    -->
-    <param name="nats-reconnect-wait" value="2000"/>
-    
-    
-    <!-- ═══════════════════════════════════════════════════════════════════════
-         EVENT PUBLISHING (Futuro)
-         ═══════════════════════════════════════════════════════════════════════ -->
-    
-    <!-- Publicar todos los eventos de FreeSWITCH
-         Valores: true | false
-         NOTA: Actualmente no implementado, reservado para futura feature
-    -->
+    <!-- Event Publishing -->
     <param name="publish_all_events" value="false"/>
-    
-    <!-- Filtros de eventos (comma-separated)
-         include: Solo publicar estos eventos
-         exclude: No publicar estos eventos
-         NOTA: Actualmente no implementado, reservado para futura feature
-    -->
     <param name="include" value=""/>
     <param name="exclude" value="DTMF,HEARTBEAT"/>
-    
-    <!-- Prefijo para subjects de eventos
-         Ejemplo: si prefix="fs", eventos se publican como: fs.events.CHANNEL_CREATE
-         NOTA: Actualmente no implementado, reservado para futura feature
-    -->
     <param name="subject_prefix" value="fs"/>
     
-    
-    <!-- ═══════════════════════════════════════════════════════════════════════
-         CLUSTER CONFIGURATION
-         ═══════════════════════════════════════════════════════════════════════ -->
-    
-    <!-- Node ID único para identificación en clusters
-         Usado en respuestas JSON para filtrar por nodo específico
-         Ejemplos:
-           - fs-node-01
-           - freeswitch-us-east-1
-           - pbx-production-01
-    -->
-    <param name="node_id" value="fs-node-01"/>
-    
-    
-    <!-- ═══════════════════════════════════════════════════════════════════════
-         JETSTREAM CONFIGURATION (NATS only)
-         ═══════════════════════════════════════════════════════════════════════ -->
-    
-    <!-- Habilitar JetStream para persistencia de mensajes
-         Valores: true | false
-         NOTA: Actualmente no implementado, reservado para futura feature
-    -->
-    <param name="jetstream" value="false"/>
-    
-    
-    <!-- ═══════════════════════════════════════════════════════════════════════
-         KAFKA DRIVER CONFIGURATION (Roadmap)
-         ═══════════════════════════════════════════════════════════════════════
-    
-    <param name="driver" value="kafka"/>
-    <param name="kafka-brokers" value="localhost:9092"/>
-    <param name="kafka-topic-commands" value="freeswitch.commands"/>
-    <param name="kafka-topic-events" value="freeswitch.events"/>
-    <param name="kafka-consumer-group" value="freeswitch-group"/>
-    <param name="kafka-compression" value="snappy"/>
-    
-    -->
-    
-    
-    <!-- ═══════════════════════════════════════════════════════════════════════
-         RABBITMQ DRIVER CONFIGURATION (Roadmap)
-         ═══════════════════════════════════════════════════════════════════════
-    
-    <param name="driver" value="rabbitmq"/>
-    <param name="rabbitmq-url" value="amqp://localhost:5672"/>
-    <param name="rabbitmq-vhost" value="/"/>
-    <param name="rabbitmq-exchange" value="freeswitch"/>
-    <param name="rabbitmq-queue" value="freeswitch.commands"/>
-    <param name="rabbitmq-routing-key" value="freeswitch.#"/>
-    
-    -->
-    
-    
-    <!-- ═══════════════════════════════════════════════════════════════════════
-         REDIS DRIVER CONFIGURATION (Roadmap)
-         ═══════════════════════════════════════════════════════════════════════
-    
-    <param name="driver" value="redis"/>
-    <param name="redis-url" value="redis://localhost:6379"/>
-    <param name="redis-db" value="0"/>
-    <param name="redis-password" value=""/>
-    <param name="redis-channel-commands" value="freeswitch:commands"/>
-    <param name="redis-channel-events" value="freeswitch:events"/>
-    
-    -->
+    <!-- Cluster Node ID -->
+    <param name="node_id" value="$${agent_node_id}"/>
     
   </settings>
 </configuration>

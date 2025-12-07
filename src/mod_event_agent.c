@@ -1,4 +1,6 @@
 #include "mod_event_agent.h"
+#include "dialplan/manager.h"
+#include "dialplan/commands.h"
 
 SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load);
 SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_event_agent_shutdown);
@@ -9,16 +11,6 @@ mod_event_agent_globals_t globals = {0};
 SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
 {
     switch_status_t status;
-    
-    FILE *f = fopen("/var/log/mod_event_agent_load.txt", "w");
-    if (f) {
-        fprintf(f, "mod_event_agent_load CALLED at start\n");
-        fclose(f);
-    }
-    
-    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "════════════════════════════════════════════\n");
-    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "🚀 mod_event_agent_load() STARTING\n");
-    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "════════════════════════════════════════════\n");
 
     memset(&globals, 0, sizeof(globals));
     
@@ -75,17 +67,24 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
 
     status = command_handler_init(globals.driver, globals.pool);
     
-    f = fopen("/var/log/mod_event_agent_before_command_init.txt", "w");
-    if (f) {
-        fprintf(f, "About to call command_handler_init, status will be recorded\n");
-        fprintf(f, "Status returned: %d\n", status);
-        fclose(f);
-    }
-    
     if (status != SWITCH_STATUS_SUCCESS) {
         EVENT_LOG_WARNING("Failed to initialize command handler (commands disabled)");
     } else {
         EVENT_LOG_INFO("Command handler enabled - listening on fs.cmd.*");
+    }
+    
+    status = dialplan_manager_init(&globals.dialplan_manager, globals.pool);
+    if (status != SWITCH_STATUS_SUCCESS) {
+        EVENT_LOG_WARNING("Failed to initialize dialplan manager (dialplan control disabled)");
+    } else {
+        EVENT_LOG_INFO("Dialplan manager initialized - park mode available");
+        
+        status = command_dialplan_init(globals.driver, globals.dialplan_manager);
+        if (status != SWITCH_STATUS_SUCCESS) {
+            EVENT_LOG_WARNING("Failed to initialize dialplan commands");
+        } else {
+            EVENT_LOG_INFO("Dialplan commands enabled - listening on fs.cmd.dialplan.*");
+        }
     }
 
     globals.running = SWITCH_TRUE;
@@ -103,6 +102,12 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_event_agent_shutdown)
     EVENT_LOG_INFO("Shutting down mod_event_agent");
 
     globals.running = SWITCH_FALSE;
+
+    if (globals.dialplan_manager) {
+        command_dialplan_shutdown(globals.driver);
+        dialplan_manager_shutdown(globals.dialplan_manager);
+        globals.dialplan_manager = NULL;
+    }
 
     command_handler_shutdown();
     event_adapter_shutdown();

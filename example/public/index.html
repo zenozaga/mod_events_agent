@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FreeSWITCH Call Control</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+        .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-indigo-700">
+    <div class="max-w-7xl mx-auto p-6">
+        <!-- Header -->
+        <header class="mb-8">
+            <h1 class="text-4xl font-bold text-white mb-2">FreeSWITCH Call Control</h1>
+            <p class="text-purple-100">Real-time call management with mod_event_agent</p>
+        </header>
+
+        <!-- Connection Status -->
+        <div id="connectionStatus" class="bg-white dark:bg-zinc-900 rounded-lg p-6 shadow-sm border border-zinc-200 dark:border-zinc-800 mb-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div id="statusIndicator" class="w-3 h-3 rounded-full animate-pulse bg-red-500"></div>
+                    <span id="statusText" class="font-semibold text-zinc-900 dark:text-zinc-100">Disconnected</span>
+                </div>
+                <div class="text-zinc-600 dark:text-zinc-400">
+                    <span id="callCount" class="font-medium">0</span> active calls
+                </div>
+            </div>
+        </div>
+
+        <!-- Grid: Originate + Stats -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <!-- Originate Form -->
+            <div class="bg-white dark:bg-zinc-900 rounded-lg p-6 shadow-sm border border-zinc-200 dark:border-zinc-800">
+                <h3 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Originate Call</h3>
+                <form id="originateForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Endpoint</label>
+                        <input type="text" id="endpoint" value="user/1001" required
+                            class="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
+                        <p class="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Example: user/1001</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Destination</label>
+                        <input type="text" id="destination" value="5000" required
+                            class="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
+                    </div>
+                    <button type="submit" class="w-full px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 font-medium">
+                        Call
+                    </button>
+                </form>
+            </div>
+
+            <!-- Quick Stats -->
+            <div class="bg-white/10 backdrop-blur-sm rounded-lg p-6">
+                <div class="text-white">
+                    <h3 class="text-lg font-semibold mb-2">Quick Stats</h3>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span>Active Calls:</span>
+                            <span id="statsCallCount" class="font-bold">0</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Connection:</span>
+                            <span id="statsConnection" class="text-red-300">Disconnected</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Command Console -->
+        <div class="bg-white dark:bg-zinc-900 rounded-lg shadow-sm border border-zinc-200 dark:border-zinc-800 mb-6">
+            <div class="border-b border-zinc-200 dark:border-zinc-800 p-4">
+                <h2 class="text-xl font-semibold text-zinc-900 dark:text-zinc-100">FreeSWITCH Command Console</h2>
+                <p class="text-sm text-zinc-600 dark:text-zinc-400 mt-1">Execute FreeSWITCH API commands directly</p>
+            </div>
+            <div class="p-4">
+                <div class="flex flex-wrap gap-2 mb-4" id="quickCommands"></div>
+                <form id="commandForm" class="space-y-3">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <input type="text" id="command" placeholder="Command (e.g., show, status)"
+                            class="px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-mono text-sm">
+                        <input type="text" id="args" placeholder="Arguments (e.g., calls)"
+                            class="px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-mono text-sm">
+                        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium">
+                            Execute
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div class="border-t border-zinc-200 dark:border-zinc-800 p-4 bg-zinc-50 dark:bg-zinc-950">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-zinc-700 dark:text-zinc-300">Command History <span id="historyCount">(0)</span></h3>
+                    <button onclick="clearHistory()" class="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">Clear</button>
+                </div>
+                <div id="commandHistory" class="space-y-3 max-h-96 overflow-y-auto"></div>
+            </div>
+        </div>
+
+        <!-- Calls List -->
+        <div class="bg-white/10 backdrop-blur-sm rounded-lg p-6">
+            <div id="callsList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+        </div>
+    </div>
+
+    <script>
+const API_URL = 'http://localhost:3000';
+let eventSource = null;
+let calls = new Map();
+let commandHistory = [];
+
+const quickCommands = [
+    { label: 'Show Calls', command: 'show', args: 'calls' },
+    { label: 'Show Channels', command: 'show', args: 'channels' },
+    { label: 'Sofia Status', command: 'sofia', args: 'status' },
+    { label: 'Show Registrations', command: 'show', args: 'registrations' },
+    { label: 'Status', command: 'status', args: '' },
+    { label: 'Version', command: 'version', args: '' },
+];
+
+function updateConnectionStatus(isConnected) {
+    const indicator = document.getElementById('statusIndicator');
+    const text = document.getElementById('statusText');
+    const stats = document.getElementById('statsConnection');
+    
+    if (isConnected) {
+        indicator.className = 'w-3 h-3 rounded-full animate-pulse bg-green-500';
+        text.textContent = 'Connected';
+        stats.textContent = 'Connected';
+        stats.className = 'text-green-300';
+    } else {
+        indicator.className = 'w-3 h-3 rounded-full animate-pulse bg-red-500';
+        text.textContent = 'Disconnected';
+        stats.textContent = 'Disconnected';
+        stats.className = 'text-red-300';
+    }
+}
+
+function updateCallCount() {
+    const count = calls.size;
+    document.getElementById('callCount').textContent = count;
+    document.getElementById('statsCallCount').textContent = count;
+}
+
+function renderCalls() {
+    const container = document.getElementById('callsList');
+    
+    if (calls.size === 0) {
+        container.innerHTML = `
+            <div class="col-span-full text-center py-16">
+                <div class="text-6xl mb-4">📞</div>
+                <h2 class="text-2xl font-semibold text-white mb-2">No Active Calls</h2>
+                <p class="text-purple-100">Waiting for incoming calls...</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = Array.from(calls.values()).map(call => `
+        <div class="bg-white dark:bg-zinc-900 rounded-lg p-6 shadow-sm border border-zinc-200 dark:border-zinc-800">
+            <div class="flex items-start justify-between mb-4">
+                <div class="font-mono text-xs text-zinc-500 dark:text-zinc-400">${call.uuid.substring(0, 8)}...</div>
+                <span class="px-3 py-1 rounded-full text-xs font-semibold ${getStatusClass(call.status)}">${call.status}</span>
+            </div>
+            <div class="space-y-2 mb-4">
+                <div>
+                    <span class="text-sm text-zinc-600 dark:text-zinc-400">From:</span>
+                    <div class="font-semibold text-zinc-900 dark:text-zinc-100">${call.caller} ${call.caller_name ? '(' + call.caller_name + ')' : ''}</div>
+                </div>
+                <div>
+                    <span class="text-sm text-zinc-600 dark:text-zinc-400">To:</span>
+                    <div class="font-semibold text-zinc-900 dark:text-zinc-100">${call.destination}</div>
+                </div>
+                <div class="text-sm text-zinc-500 dark:text-zinc-400">
+                    ${new Date(call.timestamp * 1000).toLocaleTimeString()}
+                </div>
+            </div>
+            <div class="flex gap-2">
+                ${call.status === 'parked' ? `
+                    <button onclick="answerCall('${call.uuid}')" class="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium">Answer</button>
+                    <button onclick="transferCall('${call.uuid}')" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium">Transfer</button>
+                ` : ''}
+                <button onclick="hangupCall('${call.uuid}')" class="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm font-medium">Hangup</button>
+            </div>
+        </div>
+    `).join('');
+
+    updateCallCount();
+}
+
+function getStatusClass(status) {
+    const classes = {
+        parked: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
+        answered: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+        bridged: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+        transferred: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
+        transferred_voicemail: 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200',
+    };
+    return classes[status] || classes.parked;
+}
+
+async function answerCall(uuid) {
+    try {
+        const response = await fetch(`${API_URL}/api/calls/answer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uuid, destination: 'user/1001' })
+        });
+        const result = await response.json();
+        console.log('Answer result:', result);
+    } catch (error) {
+        console.error('Failed to answer:', error);
+    }
+}
+
+async function hangupCall(uuid) {
+    try {
+        const response = await fetch(`${API_URL}/api/calls/hangup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uuid })
+        });
+        const result = await response.json();
+        console.log('Hangup result:', result);
+    } catch (error) {
+        console.error('Failed to hangup:', error);
+    }
+}
+
+function transferCall(uuid) {
+    const extension = prompt('Transfer to extension:', '9999');
+    if (!extension) return;
+
+    fetch(`${API_URL}/api/calls/transfer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uuid, extension })
+    }).then(r => r.json()).then(console.log).catch(console.error);
+}
+
+function connectEventSource() {
+    eventSource = new EventSource(`${API_URL}/api/events`);
+
+    eventSource.onopen = () => {
+        console.log('EventSource connected');
+        updateConnectionStatus(true);
+    };
+
+    eventSource.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            handleEvent(data);
+        } catch (error) {
+            console.error('Error parsing event:', error);
+        }
+    };
+
+    eventSource.onerror = () => {
+        console.error('EventSource error');
+        updateConnectionStatus(false);
+        eventSource.close();
+        setTimeout(connectEventSource, 3000);
+    };
+}
+
+function handleEvent(event) {
+    switch (event.type) {
+        case 'active_calls':
+            calls.clear();
+            event.calls.forEach(call => calls.set(call.uuid, call));
+            renderCalls();
+            break;
+        case 'call_parked':
+            calls.set(event.call.uuid, event.call);
+            renderCalls();
+            break;
+        case 'call_answered':
+            if (calls.has(event.uuid)) {
+                calls.get(event.uuid).status = 'answered';
+                renderCalls();
+            }
+            break;
+        case 'call_ended':
+            calls.delete(event.uuid);
+            renderCalls();
+            break;
+        case 'call_bridged':
+            if (calls.has(event.uuid)) {
+                calls.get(event.uuid).status = 'bridged';
+                renderCalls();
+            }
+            break;
+    }
+}
+
+function renderQuickCommands() {
+    const container = document.getElementById('quickCommands');
+    container.innerHTML = quickCommands.map(qc => `
+        <button onclick="executeQuickCommand('${qc.command}', '${qc.args}')"
+            class="px-3 py-1.5 text-sm bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-200 rounded-md hover:bg-purple-200 dark:hover:bg-purple-800 font-medium">
+            ${qc.label}
+        </button>
+    `).join('');
+}
+
+async function executeCommand(command, args) {
+    const timestamp = Date.now();
+
+    try {
+        const response = await fetch(`${API_URL}/api/command`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command, args })
+        });
+        const result = await response.json();
+
+        commandHistory.unshift({
+            command: `${command} ${args}`,
+            timestamp,
+            response: result,
+            success: result.success
+        });
+
+        renderCommandHistory();
+    } catch (error) {
+        commandHistory.unshift({
+            command: `${command} ${args}`,
+            timestamp,
+            response: { error: String(error) },
+            success: false
+        });
+        renderCommandHistory();
+    }
+}
+
+function executeQuickCommand(command, args) {
+    executeCommand(command, args);
+}
+
+function renderCommandHistory() {
+    const container = document.getElementById('commandHistory');
+    document.getElementById('historyCount').textContent = `(${commandHistory.length})`;
+
+    if (commandHistory.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-8 text-zinc-500 dark:text-zinc-400">
+                No commands executed yet. Try a quick command above.
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = commandHistory.map((item, idx) => `
+        <div class="bg-white dark:bg-zinc-900 rounded-md p-3 border border-zinc-200 dark:border-zinc-800">
+            <div class="flex items-start justify-between mb-2">
+                <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full ${item.success ? 'bg-green-500' : 'bg-red-500'}"></span>
+                    <code class="text-sm font-mono text-zinc-900 dark:text-zinc-100">$ ${item.command}</code>
+                </div>
+                <span class="text-xs text-zinc-500 dark:text-zinc-400">${new Date(item.timestamp).toLocaleTimeString()}</span>
+            </div>
+            <div class="bg-zinc-100 dark:bg-zinc-800 rounded p-3 overflow-x-auto">
+                <pre class="text-xs font-mono text-zinc-900 dark:text-zinc-100 whitespace-pre-wrap">${JSON.stringify(item.response, null, 2)}</pre>
+            </div>
+        </div>
+    `).join('');
+}
+
+function clearHistory() {
+    commandHistory = [];
+    renderCommandHistory();
+}
+
+document.getElementById('originateForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const endpoint = document.getElementById('endpoint').value;
+    const destination = document.getElementById('destination').value;
+
+    try {
+        const response = await fetch(`${API_URL}/api/calls/originate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ endpoint, destination })
+        });
+        const result = await response.json();
+        console.log('Originate result:', result);
+    } catch (error) {
+        console.error('Failed to originate:', error);
+    }
+});
+
+document.getElementById('commandForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const command = document.getElementById('command').value;
+    const args = document.getElementById('args').value;
+    if (command.trim()) {
+        executeCommand(command, args);
+        document.getElementById('command').value = '';
+        document.getElementById('args').value = '';
+    }
+});
+
+renderQuickCommands();
+renderCalls();
+connectEventSource();
+    </script>
+</body>
+</html>

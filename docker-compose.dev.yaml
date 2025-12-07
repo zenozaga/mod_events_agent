@@ -1,10 +1,11 @@
 version: '3.8'
 
 services:
+
   # NATS Message Broker
   nats_broker:
     image: nats:alpine3.22
-    container_name: agent-dev-nats
+    container_name: fs_agent_nats
     command: "-js -sd /data -m 8222"
     ports:
       - "${NATS_PORT}:4222"
@@ -17,12 +18,12 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - agent_nats_dev
+      - fs_agent
 
   # PostgreSQL Database (for Kamailio)
   postgres:
     image: postgres:15-alpine
-    container_name: agent_nats_dev_postgres
+    container_name: fs_agent_postgres
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
@@ -30,60 +31,29 @@ services:
     ports:
       - "${DB_PORT}:5432"
     networks:
-      - agent_nats_dev
+      - fs_agent
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./docker-store/postgres:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
-      
-
-  # FreeSWITCH
-  freeswitch:
-    image: freeswitch-events-agent:latest
-    container_name: agent_nats_dev_freeswitch
-    privileged: true
-    depends_on:
-      nats_broker:
-        condition: service_healthy
-    ports:
-      - "${FS_SIP_PORT}:5080/tcp"
-      - "${FS_SIP_PORT}:5080/udp"
-      - "${FS_SIP_TLS_PORT}:5061/tcp"
-      - "${FS_ESL_PORT}:8021/tcp"
-      - "${FS_WS_PORT}:5066/tcp"
-      - "${FS_WSS_PORT}:7443/tcp"
-      - "${FS_RTP_START}-${FS_RTP_END}:${FS_RTP_START}-${FS_RTP_END}/udp"
-    networks:
-      - agent_nats_dev
-    environment:
-      - MOD_AUDIO_FORK_SUBPROTOCOL_NAME=audio.drachtio.org
-      - DRACHTIO_HOST=${FS_IP}
-      - NATS_URL=nats://agent-dev-nats:4222
-    volumes:
-      - freeswitch_sounds:/usr/local/freeswitch/sounds
-      - freeswitch_recordings:/usr/local/freeswitch/recordings
-      - ./autoload_configs/mod_event_agent.conf.xml:/usr/local/freeswitch/conf/autoload_configs/mod_event_agent.conf.xml:ro
-      - ./:/workspace
-    restart: unless-stopped
 
   # Kamailio SIP Proxy
   kamailio:
     image: ghcr.io/kamailio/kamailio:6.0.4-bullseye
-    container_name: agent_nats_dev_kamailio
+    container_name: fs_agent_kamailio
     ports:
-      - "${KAM_SIP_PORT}:5060/tcp"
-      - "${KAM_SIP_PORT}:5060/udp"
-      - "${KAM_SIP_TLS_PORT}:5061/tcp"
-      - "${KAM_WS_PORT}:8080/tcp"
-      - "${KAM_WSS_PORT}:4443/tcp"
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "8082:8080/tcp"   
+      - "8443:8443/tcp"   
     networks:
-      - agent_nats_dev
+      - fs_agent
     environment:
-      - DBHOST=${DB_HOST}
+      - DBHOST=postgres
       - DBPORT=5432
       - DBNAME=${DB_NAME}
       - DBRWUSER=${DB_USER}
@@ -91,23 +61,59 @@ services:
       - FS_HOST=${FS_IP}
       - FS_PORT=5060
     volumes:
-      - ./kamailio:/etc/kamailio
+      - ./.docker-store/kamailio:/etc/kamailio
     depends_on:
-      postgres:
-        condition: service_healthy
-      freeswitch:
-        condition: service_started
+       - postgres
     restart: unless-stopped
-    command: kamailio -DD -E -m 64
+    command: ["-m", "64", "-M", "8"]
+    
+
+  # FreeSWITCH
+  freeswitch:
+    image: freeswitch-events-agent:latest
+    container_name: fs_agent_freeswitch
+    build: 
+      context: .
+      dockerfile: Dockerfile.freeswitch
+    privileged: true
+    depends_on:
+      - nats_broker
+      - kamailio
+    ports:
+
+      - "${FS_SIP_PORT}:5060/tcp"
+      - "${FS_SIP_PORT}:5060/udp"
+
+      - "5080:5080/tcp" # SIP TCP (alternative)
+      - "5080:5080/udp" # SIP UDP (alternative)
+
+      - "5081:5081/tcp" # SIP TLS TCP (alternative)
+      - "5081:5081/udp" # SIP TLS UDP (alternative)
+
+      - "5070:5070/tcp" # SIP WS
+      - "5070:5070/udp" # SIP WS UDP
+
+      - "5066:5066/tcp" # WS
+      - "64000-64100:64000-64100/udp" # RTP Media Ports
+
+      - "7443:7443" # API/WS or HTTPS port if used
+    networks:
+      - fs_agent
+    environment:
+      - MOD_AUDIO_FORK_SUBPROTOCOL_NAME=audio.drachtio.org
+      - DRACHTIO_HOST=${FS_IP}
+      - NATS_HOST=fs_agent_nats
+      - NATS_PORT=4222
+      - AGENT_NODE_ID=agent-node-1
+    volumes:
+      - ./docker-store/freeswitch/sounds:/usr/local/freeswitch/sounds
+      - ./docker-store/freeswitch/recordings:/usr/local/freeswitch/recordings
+      - ./autoload_configs/mod_event_agent.conf.xml:/usr/local/freeswitch/conf/autoload_configs/mod_event_agent.conf.xml:ro
+      - ./:/workspace
+    restart: unless-stopped
+ 
 
 networks:
-  agent_nats_dev:
+  fs_agent:
     driver: bridge
-
-volumes:
-  postgres_data:
-    driver: local
-  freeswitch_sounds:
-    driver: local
-  freeswitch_recordings:
-    driver: local
+ 

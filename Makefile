@@ -14,6 +14,7 @@ CFLAGS += -I$(FREESWITCH_INCLUDE_DIR)
 CFLAGS += -I/tmp/freeswitch/libs/libteletone/src
 CFLAGS += -I/usr/local/include
 CFLAGS += -I./include
+CFLAGS += -I./src
 
 # Local NATS library
 # Use shared library if available (for Docker), otherwise static
@@ -36,20 +37,22 @@ WITH_REDIS ?= 0
 
 # Source files
 SOURCES = src/mod_event_agent.c \
-          src/event_adapter.c \
-          src/event_agent_config.c \
-          src/command_handler.c \
-          src/commands/command_core.c \
-          src/commands/command_call.c \
-          src/commands/command_api.c \
-          src/commands/command_status.c \
-          src/serialization.c \
-          src/logger.c
+          src/core/config.c \
+          src/core/logger.c \
+          src/events/adapter.c \
+          src/events/serializer.c \
+          src/dialplan/manager.c \
+          src/dialplan/commands.c \
+          src/commands/handler.c \
+          src/commands/core.c \
+          src/commands/call.c \
+          src/commands/api.c \
+          src/commands/status.c
 
 # Driver sources
 ifeq ($(WITH_NATS),1)
   CFLAGS += -DWITH_NATS=1
-  SOURCES += src/drivers/driver_nats.c
+  SOURCES += src/drivers/nats.c
   LDFLAGS += $(NATS_LIB) $(NATS_RPATH) -lpthread -lssl -lcrypto
 endif
 
@@ -80,7 +83,7 @@ OBJECTS = $(SOURCES:.c=.o)
 # Output
 TARGET = $(MODULE_NAME).so
 
-.PHONY: all clean install test compile-nats
+.PHONY: all clean install nats examples info help
 
 all: $(TARGET)
 
@@ -113,25 +116,17 @@ install: $(TARGET)
 	install -D -m 755 $(TARGET) $(DESTDIR)/$(TARGET)
 	@echo "✅ Installed to: $(DESTDIR)/$(TARGET)"
 
-# Test programs
-tests: tests/bin/service_a_nats tests/bin/service_b_nats tests/bin/simple_test
-
-tests/bin/service_a_nats: tests/src/service_a_nats.c
-	@mkdir -p tests/bin
-	$(CC) $< -o $@ -I./include $(NATS_LIB) -lpthread -lssl -lcrypto
-	@echo "✅ Built: $@"
-
-tests/bin/service_b_nats: tests/src/service_b_nats.c
-	@mkdir -p tests/bin
-	$(CC) $< -o $@ -I./include $(NATS_LIB) -lpthread -lssl -lcrypto
-	@echo "✅ Built: $@"
-
-tests/bin/simple_test: tests/src/simple_test.c
-	@mkdir -p tests/bin
-	$(CC) $< -o $@ -I./include $(NATS_LIB) -lpthread -lssl -lcrypto
-	@echo "✅ Built: $@"
-
 # Docker targets
+docker-build:
+	@echo "🐳 Building mod_events_agent image..."
+	docker build -t mod_events_agent:latest -f Dockerfile .
+	@echo "✅ mod_events_agent image built"
+
+docker-build-freeswitch: docker-build
+	@echo "🐳 Building freeswitch-events-agent image..."
+	docker build -t freeswitch-events-agent:latest -f Dockerfile.freeswitch .
+	@echo "✅ freeswitch-events-agent image built"
+
 docker-up:
 	@echo "🐳 Starting FreeSWITCH and NATS..."
 	docker-compose -f docker-compose.dev.yaml --env-file .env.dev up -d nats_broker freeswitch
@@ -164,17 +159,10 @@ docker-status:
 	@echo "📊 Port mappings:"
 	@docker ps --format "table {{.Names}}\t{{.Ports}}" | grep -E "NAMES|nats|freeswitch" || true
 
-# Test targets
-test-compile:
-	@echo "Testing compilation with all drivers..."
-	$(MAKE) clean
-	$(MAKE) WITH_NATS=1
-	@echo "✅ NATS driver compiles"
-
-test-services: tests
-	@echo "Testing NATS services..."
-	@./tests/bin/simple_test pub test.verify "Hello from Makefile"
-	@echo "✅ Test services built successfully"
+# Examples
+examples:
+	@echo "📚 For examples, see examples/ directory"
+	@echo "   cd examples && make help"
 
 info:
 	@echo "mod_event_agent - Build Configuration"
@@ -199,7 +187,6 @@ help:
 	@echo "  make              - Build module with NATS driver"
 	@echo "  make compile-nats - Clean and build with NATS driver"
 	@echo "  make clean        - Clean build files"
-	@echo "  make tests        - Build test programs"
 	@echo "  make install      - Install module (needs DESTDIR)"
 	@echo ""
 	@echo "Docker targets:"
@@ -211,7 +198,7 @@ help:
 	@echo "  make docker-shell   - Enter FreeSWITCH container"
 	@echo "  make docker-status  - Show container status and ports"
 	@echo ""
-	@echo "Test targets:"
-	@echo "  make test-compile - Test compilation"
-	@echo "  make test-services - Test NATS services"
-	@echo "  make info         - Show build configuration"
+	@echo "Other:"
+	@echo "  make info          - Show build configuration"
+	@echo "  make examples      - Show how to run examples"
+	@echo "                       (or: cd examples && make help)"

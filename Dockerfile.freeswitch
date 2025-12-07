@@ -15,4 +15,17 @@ COPY autoload_configs/mod_event_agent.conf.xml /usr/local/freeswitch/conf/autolo
 
 RUN sed -i '/<\/modules>/i \    <load module="mod_event_agent"/>' /usr/local/freeswitch/conf/autoload_configs/modules.conf.xml
 
-EXPOSE 5060/tcp 5060/udp 5080/tcp 5080/udp 8021/tcp
+# Insert NATS environment variables into vars.xml (before closing </include>)
+RUN sed -i 's|</include>|  <!-- mod_event_agent NATS configuration -->\n  <X-PRE-PROCESS cmd="env-set" data="agent_node_id=\$AGENT_NODE_ID"/>\n<X-PRE-PROCESS cmd="env-set" data="nats_host=\$NATS_HOST"/>\n  <X-PRE-PROCESS cmd="env-set" data="nats_port=\$NATS_PORT"/>\n</include>|' /usr/local/freeswitch/conf/vars.xml
+
+# Set default environment variables
+ENV NATS_HOST=localhost
+ENV NATS_PORT=4222
+ENV AGENT_NODE_ID=agent-node-1
+
+
+# Puertos de red
+EXPOSE 5060/udp 5060/tcp 5080/tcp 8021/tcp 16384-32768/udp
+EXPOSE 5066/tcp 7443/tcp 8081/tcp 8082/tcp
+
+CMD ["freeswitch", "-nonat", "-c"]

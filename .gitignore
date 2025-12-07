@@ -14,6 +14,8 @@ tests/bin/*
 examples/nats_command_client
 examples/nats_subscriber
 examples/call_monitor
+examples/.venv/
+examples/__pycache__/
 
 # ═══════════════════════════════════════════════════════════════════════
 # Build Directories
@@ -93,3 +95,9 @@ test-results/
 .env.*
 !.env.example
 secrets/
+
+# ═══════════════════════════════════════════════════════════════════════
+# Private & Internal Documentation
+# ═══════════════════════════════════════════════════════════════════════
+.private/
+
