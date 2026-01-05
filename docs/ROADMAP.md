@@ -99,7 +99,7 @@ Development roadmap and feature planning for `mod_event_agent`.
 
 ### Monitoring & Observability
 
-**Available Metrics** (via `fs.cmd.status`):
+**Available Metrics** (via `freeswitch.cmd.status`):
 ```json
 {
   "driver": {
@@ -142,7 +142,7 @@ Development roadmap and feature planning for `mod_event_agent`.
 **Technical Requirements**:
 - Library: `librdkafka`
 - Protocol: Apache Kafka binary protocol
-- Topics: `fs.events.*`, `fs.commands.*`
+- Topics: `freeswitch.events.*`, `freeswitch.commands.*`
 
 **Configuration Sketch**:
 ```xml

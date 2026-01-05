@@ -31,7 +31,7 @@ All commands use synchronous request-reply for guaranteed delivery and response:
 │  Client  │                      │   NATS   │                    │ FreeSWITCH │
 └────┬─────┘                      └────┬─────┘                    └─────┬──────┘
      │                                 │                                │
-     │ 1. Request(fs.cmd.call.bridge)  │                                │
+    │ 1. Request(freeswitch.cmd.originate)      │                        │
      │    + Reply subject              │                                │
      ├────────────────────────────────>│                                │
      │                                 │ 2. Route to subscriber         │
@@ -56,7 +56,7 @@ Events are published without expecting responses:
 └─────┬──────┘                    └────┬─────┘                    └─────┬──────┘
       │                                │                                │
       │ 1. Publish event               │                                │
-      │   fs.events.channel.answer     │                                │
+      │   freeswitch.events.channel.answer     │                                │
       ├───────────────────────────────>│                                │
       │                                │ 2. Deliver to all subscribers  │
       │                                ├───────────────────────────────>│
@@ -80,8 +80,8 @@ Events are published without expecting responses:
   
   // Command-specific fields (varies by command)
   "endpoint": "string",     // For call.originate
-  "destination": "string",  // For call.originate/bridge
-  "uuid": "string",         // For call.bridge
+  "destination": "string",  // For call.originate
+  "uuid": "string",         // For hangup / uuid_* API helpers
   "mode": "string",         // For dialplan.audio
   "enabled": boolean        // For dialplan.autoanswer
 }
@@ -131,13 +131,13 @@ Messages delivered to **all nodes**, filtered by `node_id` in JSON:
 
 | Subject | Type | Description |
 |---------|------|-------------|
-| `fs.api` | Request-Reply | Generic API commands |
-| `fs.cmd.*` | Request-Reply | Structured commands |
-| `fs.events.*` | Pub/Sub | Event streaming |
+| `freeswitch.api` | Request-Reply | Generic API commands |
+| `freeswitch.cmd.*` | Request-Reply | Structured commands |
+| `freeswitch.events.*` | Pub/Sub | Event streaming |
 
 **Example**:
 ```json
-// Sent to: fs.api
+// Sent to: freeswitch.api
 {
   "command": "status",
   "node_id": "fs_node_01"  // Only this node processes
@@ -150,12 +150,12 @@ Messages delivered **directly to one node** via NATS routing:
 
 | Subject Pattern | Type | Description |
 |----------------|------|-------------|
-| `fs.api.{node_id}` | Request-Reply | Direct API to specific node |
-| `fs.cmd.*.{node_id}` | Request-Reply | Direct commands to specific node |
+| `freeswitch.api.{node_id}` | Request-Reply | Direct API to specific node |
+| `freeswitch.cmd.*.{node_id}` | Request-Reply | Direct commands to specific node |
 
 **Example**:
 ```bash
-# Subject: fs.api.fs_node_01 (no node_id in JSON needed)
+# Subject: freeswitch.api.fs_node_01 (no node_id in JSON needed)
 {"command": "status"}
 ```
 
@@ -166,7 +166,7 @@ Messages delivered **directly to one node** via NATS routing:
 
 Examples:
 - `FS-Node-01` → `fs_node_01`
-- `fs.node.02` → `fs_node_02`
+- `freeswitch.node.02` → `fs_node_02`
 
 ---
 
@@ -178,7 +178,7 @@ Examples:
 
 Execute any FreeSWITCH API command.
 
-**Subject**: `fs.api[.{node_id}]`
+**Subject**: `freeswitch.api[.{node_id}]`
 
 **Request**:
 ```json
@@ -216,7 +216,7 @@ Execute any FreeSWITCH API command.
 
 Get mod_event_agent statistics and health.
 
-**Subject**: `fs.cmd.status[.{node_id}]`
+**Subject**: `freeswitch.cmd.status[.{node_id}]`
 
 **Request**: `{}`
 
@@ -255,7 +255,7 @@ Get mod_event_agent statistics and health.
 
 Create an outbound call with full control.
 
-**Subject**: `fs.cmd.call.originate`
+**Subject**: `freeswitch.cmd.originate`
 
 **Request**:
 ```json
@@ -298,19 +298,17 @@ Create an outbound call with full control.
 - `9196` - Extension number
 - `&bridge(sofia/gateway/provider/5551234)` - Immediate bridge
 
-#### 4. Bridge Call
+#### 4. Hangup Call
 
-Connect existing call to another destination.
+Terminate an active channel with an optional cause.
 
-**Subject**: `fs.cmd.call.bridge`
+**Subject**: `freeswitch.cmd.hangup`
 
 **Request**:
 ```json
 {
-  "uuid": "abc-123-def-456",                 // Required: call UUID
-  "destination": "user/2000",                 // Required: bridge destination
-  "caller_id_name": "Transfer",              // Optional
-  "caller_id_number": "5551234"              // Optional
+  "uuid": "abc-123-def-456",      // Required: call UUID
+  "cause": "NORMAL_CLEARING"      // Optional: hangup cause
 }
 ```
 
@@ -318,25 +316,33 @@ Connect existing call to another destination.
 ```json
 {
   "success": true,
-  "message": "Call bridged successfully",
-  "data": {
-    "uuid": "abc-123-def-456",
-    "destination": "user/2000"
-  },
+  "message": "Channel hangup successful",
+  "data": "abc-123-def-456",
   "timestamp": 1733433600000000,
   "node_id": "fs_node_01"
 }
 ```
 
----
+> Need to bridge, transfer o contestar una llamada? Usa `freeswitch.api` con comandos nativos como `uuid_bridge`, `uuid_transfer`, `uuid_answer` o `uuid_broadcast`.
+
+#### 5. Async Variants
+
+Para cargas altas puedes usar los temas asincrónicos que no envían respuesta:
+
+| Subject | Acción |
+|---------|--------|
+| `freeswitch.cmd.async.originate` | Origina sin esperar respuesta |
+| `freeswitch.cmd.async.hangup` | Cuelga sin esperar respuesta |
+
+Publica el mismo payload que las versiones síncronas; cualquier error se registra en FreeSWITCH.
 
 ### Dialplan Control Commands
 
-#### 5. Enable Park Mode
+#### 6. Enable Park Mode
 
 Intercept all inbound calls and park them.
 
-**Subject**: `fs.cmd.dialplan.enable`
+**Subject**: `freeswitch.cmd.dialplan.enable`
 
 **Request**: `{}`
 
@@ -351,11 +357,11 @@ Intercept all inbound calls and park them.
 }
 ```
 
-#### 6. Disable Park Mode
+#### 7. Disable Park Mode
 
 Return to normal dialplan processing.
 
-**Subject**: `fs.cmd.dialplan.disable`
+**Subject**: `freeswitch.cmd.dialplan.disable`
 
 **Request**: `{}`
 
@@ -370,11 +376,11 @@ Return to normal dialplan processing.
 }
 ```
 
-#### 7. Set Audio Mode
+#### 8. Set Audio Mode
 
 Configure audio during park.
 
-**Subject**: `fs.cmd.dialplan.audio`
+**Subject**: `freeswitch.cmd.dialplan.audio`
 
 **Request**:
 ```json
@@ -400,11 +406,11 @@ Configure audio during park.
 }
 ```
 
-#### 8. Configure Auto-Answer
+#### 9. Configure Auto-Answer
 
 Enable/disable automatic answer on park.
 
-**Subject**: `fs.cmd.dialplan.autoanswer`
+**Subject**: `freeswitch.cmd.dialplan.autoanswer`
 
 **Request**:
 ```json
@@ -424,11 +430,11 @@ Enable/disable automatic answer on park.
 }
 ```
 
-#### 9. Get Dialplan Status
+#### 10. Get Dialplan Status
 
 Get current dialplan manager configuration.
 
-**Subject**: `fs.cmd.dialplan.status`
+**Subject**: `freeswitch.cmd.dialplan.status`
 
 **Request**: `{}`
 
@@ -681,35 +687,43 @@ Originate a new call.
 
 **Request:**
 ```json
+#### 4. Hangup Call
+
+Terminate a specific UUID with an optional cause.
+
+**Subject**: `freeswitch.cmd.hangup`
+
+**Request**:
+```json
 {
-  "command": "originate",
-  "args": "user/1000 &park()"
+  "uuid": "abc-123-def-456",                // Required: call UUID
+  "cause": "NORMAL_CLEARING"               // Optional: hangup cause
 }
 ```
 
-**Response:**
+**Response**:
 ```json
 {
   "success": true,
-  "message": "API command executed",
-  "data": "+OK 550e8400-e29b-41d4-a716-446655440000",
-  "timestamp": 1764893700000000,
-  "node_id": "fs-node-01"
+  "message": "Channel hangup successful",
+  "data": "abc-123-def-456",
+  "timestamp": 1733433600000000,
+  "node_id": "fs_node_01"
 }
 ```
 
-#### `uuid_kill`
-Terminate a call by UUID.
+#### 5. Async Commands
 
-**Request:**
-```json
-{
-  "command": "uuid_kill",
-  "args": "550e8400-e29b-41d4-a716-446655440000"
-}
-```
+Fire-and-forget variants for high-throughput scenarios.
 
-**Response:**
+| Subject | Description | Reply |
+|---------|-------------|-------|
+| `freeswitch.cmd.async.originate` | Originate without waiting for response | ✖ |
+| `freeswitch.cmd.async.hangup` | Hangup without waiting | ✖ |
+
+These commands share the same payloads as their synchronous counterparts but do not return responses. Monitor FreeSWITCH events or application logs for completion.
+
+> ℹ️ Need to bridge or transfer calls? Use `freeswitch.api` with native commands such as `uuid_bridge`, `uuid_transfer`, `uuid_broadcast`, etc.
 ```json
 {
   "success": true,
@@ -1009,7 +1023,7 @@ This is not JSON
 
 ### Enable Park Mode
 
-**Subject:** `fs.cmd.dialplan.enable`
+**Subject:** `freeswitch.cmd.dialplan.enable`
 
 Enables park mode. All inbound calls will be intercepted and parked until you decide what to do with them.
 
@@ -1029,7 +1043,7 @@ Enables park mode. All inbound calls will be intercepted and parked until you de
 
 ### Disable Park Mode
 
-**Subject:** `fs.cmd.dialplan.disable`
+**Subject:** `freeswitch.cmd.dialplan.disable`
 
 Disables park mode. Normal dialplan processing resumes.
 
@@ -1049,7 +1063,7 @@ Disables park mode. Normal dialplan processing resumes.
 
 ### Set Audio Mode
 
-**Subject:** `fs.cmd.dialplan.audio`
+**Subject:** `freeswitch.cmd.dialplan.audio`
 
 Configures what audio the caller hears while parked.
 
@@ -1077,7 +1091,7 @@ Configures what audio the caller hears while parked.
 
 ### Set Auto-Answer
 
-**Subject:** `fs.cmd.dialplan.autoanswer`
+**Subject:** `freeswitch.cmd.dialplan.autoanswer`
 
 Enables or disables automatic answering of parked calls.
 
@@ -1099,7 +1113,7 @@ Enables or disables automatic answering of parked calls.
 
 ### Get Dialplan Status
 
-**Subject:** `fs.cmd.dialplan.status`
+**Subject:** `freeswitch.cmd.dialplan.status`
 
 Returns current dialplan configuration and statistics.
 
@@ -1121,9 +1135,9 @@ Returns current dialplan configuration and statistics.
 **Scenario 1: Queue with Custom Logic**
 ```python
 # Enable park with music
-await nats.publish("fs.cmd.dialplan.enable", "{}")
-await nats.publish("fs.cmd.dialplan.audio", '{"mode":"music"}')
-await nats.publish("fs.cmd.dialplan.autoanswer", '{"enabled":true}')
+await nats.publish("freeswitch.cmd.dialplan.enable", "{}")
+await nats.publish("freeswitch.cmd.dialplan.audio", '{"mode":"music"}')
+await nats.publish("freeswitch.cmd.dialplan.autoanswer", '{"enabled":true}')
 
 # Your app receives CHANNEL_PARK events
 # Analyze and route: uuid_transfer, uuid_bridge, etc.
@@ -1132,10 +1146,10 @@ await nats.publish("fs.cmd.dialplan.autoanswer", '{"enabled":true}')
 **Scenario 2: Business Hours**
 ```python
 if is_business_hours():
-    await nats.publish("fs.cmd.dialplan.disable", "{}")
+    await nats.publish("freeswitch.cmd.dialplan.disable", "{}")
 else:
-    await nats.publish("fs.cmd.dialplan.enable", "{}")
-    await nats.publish("fs.cmd.dialplan.audio", '{"mode":"music"}')
+    await nats.publish("freeswitch.cmd.dialplan.enable", "{}")
+    await nats.publish("freeswitch.cmd.dialplan.audio", '{"mode":"music"}')
 ```
 
 **Complete documentation:** See [DIALPLAN_CONTROL.md](DIALPLAN_CONTROL.md)
@@ -1146,7 +1160,7 @@ else:
 
 1. **NATS Authentication**: Configure authentication on NATS Server
 2. **TLS/SSL**: Use secure connections in production (`nats://` → `tls://`)
-3. **ACLs**: Restrict which clients can publish to `fs.*`
+3. **ACLs**: Restrict which clients can publish to `freeswitch.*`
 4. **Rate Limiting**: Implement rate limiting on the broker
 5. **Input Validation**: Validate all commands before execution
 
@@ -1154,8 +1168,8 @@ else:
 
 ## 📈 Performance Tips
 
-1. **Use Direct Subscriptions**: When targeting a specific node, use direct subscriptions (`fs.api.{node_id}`) instead of broadcast with JSON filtering. This reduces network overhead as NATS routes messages only to the target node.
-2. **Broadcast for Failover**: Use broadcast subscriptions (`fs.api`) without `node_id` when you want any available node to process the request (automatic load balancing).
+1. **Use Direct Subscriptions**: When targeting a specific node, use direct subscriptions (`freeswitch.api.{node_id}`) instead of broadcast with JSON filtering. This reduces network overhead as NATS routes messages only to the target node.
+2. **Broadcast for Failover**: Use broadcast subscriptions (`freeswitch.api`) without `node_id` when you want any available node to process the request (automatic load balancing).
 3. **Connection Pooling**: Reuse NATS connections
 4. **Batch Requests**: Group multiple commands when possible
 5. **Async Commands**: Use asynchronous commands for fire-and-forget operations
@@ -1166,9 +1180,9 @@ else:
 
 | Scenario | Subject | Network Cost | Use Case |
 |----------|---------|--------------|----------|
-| Any available node | `fs.api` | O(n) - all nodes receive | Load balancing, failover |
-| Specific node (broadcast) | `fs.api` + `"node_id":"fs_node_01"` | O(n) - all nodes receive, filter in app | Legacy compatibility |
-| Specific node (direct) | `fs.api.fs_node_01` | O(1) - only target receives | **Recommended** for targeted requests |
+| Any available node | `freeswitch.api` | O(n) - all nodes receive | Load balancing, failover |
+| Specific node (broadcast) | `freeswitch.api` + `"node_id":"fs_node_01"` | O(n) - all nodes receive, filter in app | Legacy compatibility |
+| Specific node (direct) | `freeswitch.api.fs_node_01` | O(1) - only target receives | **Recommended** for targeted requests |
 
 ---
 

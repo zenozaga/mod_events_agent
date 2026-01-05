@@ -70,7 +70,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
     if (status != SWITCH_STATUS_SUCCESS) {
         EVENT_LOG_WARNING("Failed to initialize command handler (commands disabled)");
     } else {
-        EVENT_LOG_INFO("Command handler enabled - listening on fs.cmd.*");
+        EVENT_LOG_INFO("Command handler enabled - listening on %s.cmd.*",
+                globals.subject_prefix ? globals.subject_prefix : DEFAULT_SUBJECT_PREFIX);
     }
     
     status = dialplan_manager_init(&globals.dialplan_manager, globals.pool);
@@ -83,7 +84,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
         if (status != SWITCH_STATUS_SUCCESS) {
             EVENT_LOG_WARNING("Failed to initialize dialplan commands");
         } else {
-            EVENT_LOG_INFO("Dialplan commands enabled - listening on fs.cmd.dialplan.*");
+            EVENT_LOG_INFO("Dialplan commands enabled - listening on %s.cmd.dialplan.*",
+                            globals.subject_prefix ? globals.subject_prefix : DEFAULT_SUBJECT_PREFIX);
         }
     }
 

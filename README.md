@@ -39,7 +39,8 @@
 │                                                                    │
 │  Subjects:                                                         │
 │  • freeswitch.api[.{node_id}]           ← Generic API (req/reply)        │
-│  • freeswitch.cmd.call.*[.{node_id}]    ← Call commands                  │
+│  • freeswitch.cmd.originate[.{node_id}]  ← Origination commands          │
+│  • freeswitch.cmd.hangup[.{node_id}]     ← Hangup commands               │
 │  • freeswitch.cmd.dialplan.*            ← Park/Audio control              │
 │  • freeswitch.cmd.status                ← Module statistics              │
 │  • freeswitch.events.*                  → Events (pub/sub)               │
@@ -248,7 +249,7 @@ Edit `/etc/freeswitch/autoload_configs/event_agent.conf.xml`:
   <settings>
     <param name="driver" value="nats"/>
     <param name="url" value="nats://localhost:4222"/>
-    <param name="subject-prefix" value="fs"/>
+    <param name="subject_prefix" value="freeswitch"/>
     <param name="node-id" value="fs-node-01"/>
     
     <!-- Event filtering -->
@@ -268,8 +269,11 @@ fs_cli -x "load mod_event_agent"
 ### 5. Test Commands
 
 ```bash
-# Using NATS CLI
+# Using NATS CLI (sync request)
 nats req freeswitch.api '{"command":"status"}' --server nats://localhost:4222
+
+# Using NATS CLI (async fire-and-forget)
+nats pub freeswitch.cmd.async.originate '{"endpoint":"user/1000","extension":"&park"}'
 
 # Using web interface
 cd example
@@ -304,7 +308,7 @@ mod_events_agent/
 │   │   ├── handler.c              # Command dispatcher
 │   │   ├── core.c                 # Request validation
 │   │   ├── api.c                  # Generic API execution
-│   │   ├── call.c                 # Originate/Bridge commands
+│   │   ├── call.c                 # Originate/Hangup commands
 │   │   └── status.c               # Statistics & health
 │   │
 │   └── drivers/                   # Message broker drivers
@@ -343,8 +347,12 @@ mod_events_agent/
 
 | Subject | Description | Reply |
 |---------|-------------|-------|
-| `freeswitch.cmd.call.originate` | Create outbound call | ✅ Yes |
-| `freeswitch.cmd.call.bridge` | Bridge two call legs | ✅ Yes |
+| `freeswitch.cmd.originate[.{node_id}]` | Create outbound call | ✅ Yes |
+| `freeswitch.cmd.hangup[.{node_id}]` | Hang up a UUID with cause | ✅ Yes |
+| `freeswitch.cmd.async.originate[.{node_id}]` | Fire-and-forget originate | ➖ No (async) |
+| `freeswitch.cmd.async.hangup[.{node_id}]` | Fire-and-forget hangup | ➖ No (async) |
+
+> ℹ️ Bridge or transfer calls via `freeswitch.api` using native FS commands such as `uuid_bridge`, `uuid_transfer`, etc.
 
 ### Dialplan Control
 
@@ -375,7 +383,7 @@ mod_events_agent/
 ```xml
 <param name="driver" value="nats"/>              <!-- Driver: nats (others in roadmap) -->
 <param name="url" value="nats://host:4222"/>     <!-- Broker connection URL -->
-<param name="subject-prefix" value="fs"/>        <!-- Subject prefix (freeswitch.api, freeswitch.cmd.*) -->
+<param name="subject_prefix" value="freeswitch"/> <!-- Subject prefix (freeswitch.api, freeswitch.cmd.*) -->
 <param name="node-id" value="fs-node-01"/>       <!-- Unique node identifier -->
 ```
 
@@ -384,10 +392,13 @@ mod_events_agent/
 ## 🚀 Installation
 
 ### Requirements
-- FreeSWITCH 1.10+
+- FreeSWITCH 1.10+ (headers installed in `/usr/local/freeswitch/include` or equivalent)
 - Linux/Unix system
-- gcc/make for compilation
-- NATS Server (or other message broker depending on driver)
+- build toolchain: `gcc`, `make`, `pkg-config`
+- `libcjson` headers (`libcjson-dev` on Debian/Ubuntu)
+- `libssl`/`libcrypto` headers (`libssl-dev`)
+- NATS Server (runtime dependency)
+- Bundled NATS C client (already in `lib/` + `include/` — no extra install needed)
 
 ### Option 1: Automatic Installation (Recommended)
 

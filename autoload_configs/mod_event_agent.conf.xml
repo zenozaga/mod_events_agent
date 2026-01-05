@@ -16,7 +16,7 @@
     <param name="publish_all_events" value="false"/>
     <param name="include" value=""/>
     <param name="exclude" value="DTMF,HEARTBEAT"/>
-    <param name="subject_prefix" value="fs"/>
+    <param name="subject_prefix" value="freeswitch"/>
     
     <!-- Cluster Node ID -->
     <param name="node_id" value="$${agent_node_id}"/>

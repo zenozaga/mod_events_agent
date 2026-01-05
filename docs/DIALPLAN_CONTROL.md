@@ -34,18 +34,18 @@ The dialplan manager uses FreeSWITCH's XML binding API to dynamically inject dia
 
 ## NATS Commands
 
-All commands use the prefix `fs.cmd.dialplan.*`
+All commands use the prefix `freeswitch.cmd.dialplan.*`
 
 ### Enable Park Mode
 
-**Subject:** `fs.cmd.dialplan.enable`
+**Subject:** `freeswitch.cmd.dialplan.enable`
 **Payload:** None
 
 Enables park mode. All inbound calls will be intercepted and parked.
 
 **Example:**
 ```bash
-nats pub fs.cmd.dialplan.enable ""
+nats pub freeswitch.cmd.dialplan.enable ""
 ```
 
 **Response:**
@@ -59,14 +59,14 @@ nats pub fs.cmd.dialplan.enable ""
 
 ### Disable Park Mode
 
-**Subject:** `fs.cmd.dialplan.disable`
+**Subject:** `freeswitch.cmd.dialplan.disable`
 **Payload:** None
 
 Disables park mode. Normal dialplan processing resumes.
 
 **Example:**
 ```bash
-nats pub fs.cmd.dialplan.disable ""
+nats pub freeswitch.cmd.dialplan.disable ""
 ```
 
 **Response:**
@@ -80,7 +80,7 @@ nats pub fs.cmd.dialplan.disable ""
 
 ### Set Audio Mode
 
-**Subject:** `fs.cmd.dialplan.audio`
+**Subject:** `freeswitch.cmd.dialplan.audio`
 **Payload:**
 ```json
 {
@@ -93,12 +93,12 @@ Sets the audio mode for parked calls.
 
 **Example - Ringback:**
 ```bash
-nats pub fs.cmd.dialplan.audio '{"mode":"ringback"}'
+nats pub freeswitch.cmd.dialplan.audio '{"mode":"ringback"}'
 ```
 
 **Example - Music:**
 ```bash
-nats pub fs.cmd.dialplan.audio '{"mode":"music","music_class":"moh"}'
+nats pub freeswitch.cmd.dialplan.audio '{"mode":"music","music_class":"moh"}'
 ```
 
 **Response:**
@@ -112,7 +112,7 @@ nats pub fs.cmd.dialplan.audio '{"mode":"music","music_class":"moh"}'
 
 ### Set Auto-Answer
 
-**Subject:** `fs.cmd.dialplan.autoanswer`
+**Subject:** `freeswitch.cmd.dialplan.autoanswer`
 **Payload:**
 ```json
 {
@@ -124,7 +124,7 @@ Enables or disables auto-answer for parked calls.
 
 **Example:**
 ```bash
-nats pub fs.cmd.dialplan.autoanswer '{"enabled":true}'
+nats pub freeswitch.cmd.dialplan.autoanswer '{"enabled":true}'
 ```
 
 **Response:**
@@ -138,14 +138,14 @@ nats pub fs.cmd.dialplan.autoanswer '{"enabled":true}'
 
 ### Get Status
 
-**Subject:** `fs.cmd.dialplan.status`
+**Subject:** `freeswitch.cmd.dialplan.status`
 **Payload:** None
 
 Returns current dialplan configuration and statistics.
 
 **Example:**
 ```bash
-nats pub fs.cmd.dialplan.status ""
+nats pub freeswitch.cmd.dialplan.status ""
 ```
 
 **Response:**
@@ -292,23 +292,26 @@ await controller.set_audio_mode("ringback")
 # 3. When call parks, you have the UUID
 # Now you can:
 
-# Answer the call
-nats.publish("fs.cmd.call.answer", json.dumps({"uuid": uuid}))
-
-# Bridge to destination
-nats.publish("fs.cmd.call.bridge", json.dumps({
-    "uuid": uuid,
-    "destination": "sofia/gateway/trunk/5551234"
+# Answer the call (FreeSWITCH API)
+nats.publish("freeswitch.api", json.dumps({
+   "command": "uuid_answer",
+   "args": uuid
 }))
 
-# Transfer to extension
-nats.publish("fs.cmd.call.transfer", json.dumps({
-    "uuid": uuid,
-    "destination": "1000"
+# Bridge to destination (FreeSWITCH API)
+nats.publish("freeswitch.api", json.dumps({
+   "command": "uuid_bridge",
+   "args": f"{uuid} sofia/gateway/trunk/5551234"
 }))
 
-# Hangup
-nats.publish("fs.cmd.call.hangup", json.dumps({"uuid": uuid}))
+# Transfer to extension (FreeSWITCH API)
+nats.publish("freeswitch.api", json.dumps({
+   "command": "uuid_transfer",
+   "args": f"{uuid} -bleg 1000"
+}))
+
+# Hangup via command bus
+nats.publish("freeswitch.cmd.hangup", json.dumps({"uuid": uuid}))
 ```
 
 ## Event Flow

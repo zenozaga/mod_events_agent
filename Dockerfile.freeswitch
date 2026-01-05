@@ -1,4 +1,4 @@
-FROM mod_events_agent:latest AS builder
+FROM mod_event_agent:latest AS builder
 
 FROM drachtio/drachtio-freeswitch-mrf:latest
 
@@ -13,7 +13,7 @@ RUN ldconfig
 
 COPY autoload_configs/mod_event_agent.conf.xml /usr/local/freeswitch/conf/autoload_configs/
 
-RUN sed -i '/<\/modules>/i \    <load module="mod_event_agent"/>' /usr/local/freeswitch/conf/autoload_configs/modules.conf.xml
+RUN sed -i '/<\/modules>/i \    <load module="mod_event_agent"\/>/' /usr/local/freeswitch/conf/autoload_configs/modules.conf.xml
 
 # Insert NATS environment variables into vars.xml (before closing </include>)
 RUN sed -i 's|</include>|  <!-- mod_event_agent NATS configuration -->\n  <X-PRE-PROCESS cmd="env-set" data="agent_node_id=\$AGENT_NODE_ID"/>\n<X-PRE-PROCESS cmd="env-set" data="nats_host=\$NATS_HOST"/>\n  <X-PRE-PROCESS cmd="env-set" data="nats_port=\$NATS_PORT"/>\n</include>|' /usr/local/freeswitch/conf/vars.xml

@@ -1,10 +1,22 @@
 #include "commands.h"
 #include "manager.h"
+#include "../mod_event_agent.h"
 #include <switch.h>
 #include <string.h>
 
 static dialplan_manager_t *g_dialplan_manager = NULL;
 static event_driver_t *g_driver = NULL;
+
+static const char *get_subject_prefix(void)
+{
+    extern mod_event_agent_globals_t globals;
+    return (globals.subject_prefix && *globals.subject_prefix) ? globals.subject_prefix : DEFAULT_SUBJECT_PREFIX;
+}
+
+static void build_subject(char *buffer, size_t len, const char *suffix)
+{
+    switch_snprintf(buffer, len, "%s.%s", get_subject_prefix(), suffix);
+}
 
 static void handle_dialplan_enable(const char *subject, const char *data, size_t data_len, const char *reply_subject, void *user_data)
 {
@@ -202,11 +214,22 @@ switch_status_t command_dialplan_init(event_driver_t *driver, dialplan_manager_t
     g_dialplan_manager = manager;
     
     /* Subscribe to dialplan commands */
-    driver->subscribe(driver, "fs.cmd.dialplan.enable", handle_dialplan_enable, NULL);
-    driver->subscribe(driver, "fs.cmd.dialplan.disable", handle_dialplan_disable, NULL);
-    driver->subscribe(driver, "fs.cmd.dialplan.audio", handle_dialplan_audio, NULL);
-    driver->subscribe(driver, "fs.cmd.dialplan.autoanswer", handle_dialplan_autoanswer, NULL);
-    driver->subscribe(driver, "fs.cmd.dialplan.status", handle_dialplan_status, NULL);
+    char subject[256];
+
+    build_subject(subject, sizeof(subject), "cmd.dialplan.enable");
+    driver->subscribe(driver, subject, handle_dialplan_enable, NULL);
+
+    build_subject(subject, sizeof(subject), "cmd.dialplan.disable");
+    driver->subscribe(driver, subject, handle_dialplan_disable, NULL);
+
+    build_subject(subject, sizeof(subject), "cmd.dialplan.audio");
+    driver->subscribe(driver, subject, handle_dialplan_audio, NULL);
+
+    build_subject(subject, sizeof(subject), "cmd.dialplan.autoanswer");
+    driver->subscribe(driver, subject, handle_dialplan_autoanswer, NULL);
+
+    build_subject(subject, sizeof(subject), "cmd.dialplan.status");
+    driver->subscribe(driver, subject, handle_dialplan_status, NULL);
     
     switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
                      "Dialplan command handlers initialized\n");
@@ -221,11 +244,22 @@ void command_dialplan_shutdown(event_driver_t *driver)
     }
     
     /* Unsubscribe from dialplan commands */
-    driver->unsubscribe(driver, "fs.cmd.dialplan.enable");
-    driver->unsubscribe(driver, "fs.cmd.dialplan.disable");
-    driver->unsubscribe(driver, "fs.cmd.dialplan.audio");
-    driver->unsubscribe(driver, "fs.cmd.dialplan.autoanswer");
-    driver->unsubscribe(driver, "fs.cmd.dialplan.status");
+    char subject[256];
+
+    build_subject(subject, sizeof(subject), "cmd.dialplan.enable");
+    driver->unsubscribe(driver, subject);
+
+    build_subject(subject, sizeof(subject), "cmd.dialplan.disable");
+    driver->unsubscribe(driver, subject);
+
+    build_subject(subject, sizeof(subject), "cmd.dialplan.audio");
+    driver->unsubscribe(driver, subject);
+
+    build_subject(subject, sizeof(subject), "cmd.dialplan.autoanswer");
+    driver->unsubscribe(driver, subject);
+
+    build_subject(subject, sizeof(subject), "cmd.dialplan.status");
+    driver->unsubscribe(driver, subject);
     
     g_driver = NULL;
     g_dialplan_manager = NULL;
