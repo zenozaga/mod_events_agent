@@ -25,8 +25,8 @@ dist/
 *.log
 nohup.out
 *.pid
-core
-core.*
+/core
+/core.*
 
 # ═══════════════════════════════════════════════════════════════════════
 # Docker & Development
