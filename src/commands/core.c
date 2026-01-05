@@ -3,6 +3,10 @@
 
 static command_stats_t g_stats = {0};
 
+uint64_t command_current_timestamp_us(void) {
+    return (uint64_t)switch_time_now();
+}
+
 switch_bool_t should_process_request(cJSON *json) {
     extern mod_event_agent_globals_t globals;
     
@@ -33,8 +37,7 @@ cJSON* build_json_response_object(switch_bool_t success, const char *message) {
     cJSON_AddBoolToObject(json, "success", success);
     cJSON_AddStringToObject(json, "status", success ? "success" : "error");
     cJSON_AddStringToObject(json, "message", message ? message : "");
-    double timestamp_ms = (double)switch_time_now() / 1000.0;
-    cJSON_AddNumberToObject(json, "timestamp", timestamp_ms);
+    cJSON_AddNumberToObject(json, "timestamp", (double)command_current_timestamp_us());
 
     if (globals.node_id && strlen(globals.node_id) > 0) {
         cJSON_AddStringToObject(json, "node_id", globals.node_id);
