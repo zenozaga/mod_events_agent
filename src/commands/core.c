@@ -23,20 +23,37 @@ switch_bool_t should_process_request(cJSON *json) {
     return SWITCH_FALSE;
 }
 
-char* build_json_response(switch_bool_t success, const char *message, const char *data) {
+cJSON* build_json_response_object(switch_bool_t success, const char *message) {
     extern mod_event_agent_globals_t globals;
     cJSON *json = cJSON_CreateObject();
+    if (!json) {
+        return NULL;
+    }
+
     cJSON_AddBoolToObject(json, "success", success);
+    cJSON_AddStringToObject(json, "status", success ? "success" : "error");
     cJSON_AddStringToObject(json, "message", message ? message : "");
-    if (data) cJSON_AddStringToObject(json, "data", data);
     cJSON_AddNumberToObject(json, "timestamp", (double)switch_time_now());
-    
+
     if (globals.node_id && strlen(globals.node_id) > 0) {
         cJSON_AddStringToObject(json, "node_id", globals.node_id);
     } else {
         cJSON_AddStringToObject(json, "node_id", "unknown");
     }
-    
+
+    return json;
+}
+
+char* build_json_response(switch_bool_t success, const char *message, const char *data) {
+    cJSON *json = build_json_response_object(success, message);
+    if (!json) {
+        return NULL;
+    }
+
+    if (data) {
+        cJSON_AddStringToObject(json, "data", data);
+    }
+
     char *json_str = cJSON_PrintUnformatted(json);
     cJSON_Delete(json);
     return json_str;

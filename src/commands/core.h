@@ -10,6 +10,7 @@ typedef struct {
 } command_stats_t;
 
 switch_bool_t should_process_request(cJSON *json);
+cJSON* build_json_response_object(switch_bool_t success, const char *message);
 char* build_json_response(switch_bool_t success, const char *message, const char *data);
 void command_stats_increment_received(void);
 void command_stats_increment_success(void);
