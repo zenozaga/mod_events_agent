@@ -18,6 +18,24 @@ static void build_subject(char *buffer, size_t len, const char *suffix)
     switch_snprintf(buffer, len, "%s.%s", get_subject_prefix(), suffix);
 }
 
+static void publish_simple_response(const char *reply_subject, const char *status, const char *message)
+{
+    cJSON *response = cJSON_CreateObject();
+    if (!response) {
+        return;
+    }
+
+    cJSON_AddStringToObject(response, "status", status);
+    cJSON_AddStringToObject(response, "message", message);
+
+    char *json_str = cJSON_PrintUnformatted(response);
+    if (json_str && g_driver && reply_subject) {
+        g_driver->publish(g_driver, reply_subject, json_str, strlen(json_str));
+    }
+    switch_safe_free(json_str);
+    cJSON_Delete(response);
+}
+
 static void handle_dialplan_enable(const char *subject, const char *data, size_t data_len, const char *reply_subject, void *user_data)
 {
     cJSON *response = cJSON_CreateObject();
@@ -204,6 +222,42 @@ static void handle_dialplan_status(const char *subject, const char *data, size_t
     cJSON_Delete(response);
 }
 
+static void dispatch_dialplan_command(const char *subject, const char *data, size_t data_len, const char *reply_subject, void *user_data)
+{
+    const char *prefix = get_subject_prefix();
+    size_t prefix_len = strlen(prefix);
+
+    if (strncmp(subject, prefix, prefix_len) != 0 || subject[prefix_len] != '.') {
+        publish_simple_response(reply_subject, "error", "Invalid subject prefix");
+        return;
+    }
+
+    const char *suffix = subject + prefix_len + 1; /* skip dot */
+    static const char *dialplan_prefix = "cmd.dialplan.";
+    size_t dialplan_len = strlen(dialplan_prefix);
+
+    if (strncmp(suffix, dialplan_prefix, dialplan_len) != 0) {
+        publish_simple_response(reply_subject, "error", "Unsupported dialplan subject");
+        return;
+    }
+
+    const char *command = suffix + dialplan_len;
+
+    if (strcmp(command, "enable") == 0) {
+        handle_dialplan_enable(subject, data, data_len, reply_subject, user_data);
+    } else if (strcmp(command, "disable") == 0) {
+        handle_dialplan_disable(subject, data, data_len, reply_subject, user_data);
+    } else if (strcmp(command, "audio") == 0) {
+        handle_dialplan_audio(subject, data, data_len, reply_subject, user_data);
+    } else if (strcmp(command, "autoanswer") == 0) {
+        handle_dialplan_autoanswer(subject, data, data_len, reply_subject, user_data);
+    } else if (strcmp(command, "status") == 0) {
+        handle_dialplan_status(subject, data, data_len, reply_subject, user_data);
+    } else {
+        publish_simple_response(reply_subject, "error", "Unknown dialplan command");
+    }
+}
+
 switch_status_t command_dialplan_init(event_driver_t *driver, dialplan_manager_t *manager)
 {
     if (!driver || !manager) {
@@ -216,20 +270,8 @@ switch_status_t command_dialplan_init(event_driver_t *driver, dialplan_manager_t
     /* Subscribe to dialplan commands */
     char subject[256];
 
-    build_subject(subject, sizeof(subject), "cmd.dialplan.enable");
-    driver->subscribe(driver, subject, handle_dialplan_enable, NULL);
-
-    build_subject(subject, sizeof(subject), "cmd.dialplan.disable");
-    driver->subscribe(driver, subject, handle_dialplan_disable, NULL);
-
-    build_subject(subject, sizeof(subject), "cmd.dialplan.audio");
-    driver->subscribe(driver, subject, handle_dialplan_audio, NULL);
-
-    build_subject(subject, sizeof(subject), "cmd.dialplan.autoanswer");
-    driver->subscribe(driver, subject, handle_dialplan_autoanswer, NULL);
-
-    build_subject(subject, sizeof(subject), "cmd.dialplan.status");
-    driver->subscribe(driver, subject, handle_dialplan_status, NULL);
+    build_subject(subject, sizeof(subject), ">");
+    driver->subscribe(driver, subject, dispatch_dialplan_command, NULL);
     
     switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
                      "Dialplan command handlers initialized\n");
@@ -246,19 +288,7 @@ void command_dialplan_shutdown(event_driver_t *driver)
     /* Unsubscribe from dialplan commands */
     char subject[256];
 
-    build_subject(subject, sizeof(subject), "cmd.dialplan.enable");
-    driver->unsubscribe(driver, subject);
-
-    build_subject(subject, sizeof(subject), "cmd.dialplan.disable");
-    driver->unsubscribe(driver, subject);
-
-    build_subject(subject, sizeof(subject), "cmd.dialplan.audio");
-    driver->unsubscribe(driver, subject);
-
-    build_subject(subject, sizeof(subject), "cmd.dialplan.autoanswer");
-    driver->unsubscribe(driver, subject);
-
-    build_subject(subject, sizeof(subject), "cmd.dialplan.status");
+    build_subject(subject, sizeof(subject), ">");
     driver->unsubscribe(driver, subject);
     
     g_driver = NULL;
