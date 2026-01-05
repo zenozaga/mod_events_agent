@@ -33,7 +33,8 @@ cJSON* build_json_response_object(switch_bool_t success, const char *message) {
     cJSON_AddBoolToObject(json, "success", success);
     cJSON_AddStringToObject(json, "status", success ? "success" : "error");
     cJSON_AddStringToObject(json, "message", message ? message : "");
-    cJSON_AddNumberToObject(json, "timestamp", (double)switch_time_now());
+    double timestamp_ms = (double)switch_time_now() / 1000.0;
+    cJSON_AddNumberToObject(json, "timestamp", timestamp_ms);
 
     if (globals.node_id && strlen(globals.node_id) > 0) {
         cJSON_AddStringToObject(json, "node_id", globals.node_id);
