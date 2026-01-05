@@ -12,6 +12,7 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
     globals.node_id = switch_core_sprintf(pool, "fs-node-%s", switch_core_get_switchname());
     slugify_node_id(globals.node_id);
     globals.publish_all_events = SWITCH_TRUE;
+    globals.log_level = SWITCH_LOG_INFO;
     globals.include_events = NULL;
     globals.exclude_events = NULL;
     globals.include_count = 0;
@@ -37,6 +38,15 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
 
         if (!strcasecmp(name, "driver")) {
             globals.driver_name = switch_core_strdup(pool, value);
+        }
+        else if (!strcasecmp(name, "log_level") || !strcasecmp(name, "log-level")) {
+            switch_log_level_t lvl = switch_log_str2level(value);
+            if (lvl == SWITCH_LOG_INVALID) {
+                EVENT_LOG_WARNING("Invalid log level '%s', keeping %s", value, switch_log_level2str(globals.log_level));
+            } else {
+                globals.log_level = lvl;
+                EVENT_LOG_INFO("Log level set to %s", switch_log_level2str(globals.log_level));
+            }
         }
         else if (!strcasecmp(name, "url") || !strcasecmp(name, "host")) {
             switch_core_hash_insert(globals.config, "url", switch_core_strdup(pool, value));
@@ -75,8 +85,10 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
 done:
     switch_xml_free(xml);
     
-    EVENT_LOG_INFO("Configuration loaded - driver: %s, node: %s", 
-                  globals.driver_name, globals.node_id);
+    EVENT_LOG_INFO("Configuration loaded - driver: %s, node: %s, log=%s",
+                  globals.driver_name,
+                  globals.node_id,
+                  switch_log_level2str(globals.log_level));
     
     return SWITCH_STATUS_SUCCESS;
 }

@@ -214,38 +214,37 @@ Execute any FreeSWITCH API command.
 
 #### 2. Module Statistics
 
-Get mod_event_agent statistics and health.
+Get mod_event_agent statistics and health. You can also change the module log level on the fly by including a `log_level` field in the request payload.
 
 **Subject**: `freeswitch.cmd.status[.{node_id}]`
 
-**Request**: `{}`
+**Request**: `{}` (status only) or:
+
+```json
+{"log_level": "debug"}
+```
 
 **Response**:
 ```json
 {
   "success": true,
-  "message": "Module status retrieved",
+  "status": "success",
+  "message": "System status",
+  "timestamp": 1733433600000000,
+  "node_id": "fs-node-01",
   "data": {
     "version": "2.0.0",
-    "uptime_seconds": 3600,
-    "driver": "nats",
-    "driver_connected": true,
-    "node_id": "fs_node_01",
-    "events": {
-      "published": 12345,
-      "failed": 0,
-      "skipped_no_subscribers": 234
-    },
-    "commands": {
-      "received": 5432,
-      "success": 5400,
-      "failed": 32
+    "log_level": "info",
+    "stats": {
+      "requests_received": 5432,
+      "requests_success": 5400,
+      "requests_failed": 32
     }
-  },
-  "timestamp": 1733433600000000,
-  "node_id": "fs_node_01"
+  }
 }
 ```
+
+If the level changes successfully the response also contains `"log_level_updated": true` inside `data` so clients can confirm the new verbosity is active.
 
 ---
 

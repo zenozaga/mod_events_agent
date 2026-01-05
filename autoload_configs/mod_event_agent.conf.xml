@@ -18,6 +18,9 @@
     <param name="exclude" value="DTMF,HEARTBEAT"/>
     <param name="subject_prefix" value="freeswitch"/>
     
+    <!-- Logging -->
+    <param name="log-level" value="info"/>
+
     <!-- Cluster Node ID -->
     <param name="node_id" value="$${agent_node_id}"/>
     

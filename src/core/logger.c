@@ -3,6 +3,12 @@
 
 void event_agent_log(switch_log_level_t level, const char *fmt, ...)
 {
+    switch_log_level_t effective_level = globals.log_level ? globals.log_level : SWITCH_LOG_INFO;
+
+    if (level > effective_level) {
+        return;
+    }
+
     char *log_line;
     va_list ap;
 

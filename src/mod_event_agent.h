@@ -42,6 +42,8 @@ typedef struct {
     char **exclude_events;
     uint32_t include_count;
     uint32_t exclude_count;
+
+    switch_log_level_t log_level;
     
     switch_bool_t running;
     uint64_t events_published;

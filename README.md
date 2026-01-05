@@ -28,6 +28,25 @@
 - **Multi-Tenant Systems**: Isolated control per tenant with node routing
 - **WebRTC Gateways**: Bridge SIP/WebRTC with external signaling
 
+### Standard Response Envelope
+
+Every synchronous command reply comes in the same JSON envelope so client code can be minimal and safe:
+
+```json
+{
+  "success": true,
+  "status": "success",
+  "message": "API command executed",
+  "timestamp": 1736123456789012,
+  "node_id": "fs-node-01",
+  "data": "optional payload"
+}
+```
+
+- `timestamp` is expressed in **microseconds** since epoch for maximum resolution.
+- `node_id` is always present (or "unknown" if the node was not configured).
+- Handlers can extend the payload with extra keys like `mode`, `enabled`, or `info`, but the envelope is guaranteed.
+
 ---
 
 ## 🏗️ Architecture
@@ -41,8 +60,8 @@
 │  • freeswitch.api[.{node_id}]           ← Generic API (req/reply)        │
 │  • freeswitch.cmd.originate[.{node_id}]  ← Origination commands          │
 │  • freeswitch.cmd.hangup[.{node_id}]     ← Hangup commands               │
-│  • freeswitch.cmd.dialplan.*            ← Park/Audio control              │
-│  • freeswitch.cmd.status                ← Module statistics              │
+│  • freeswitch.cmd.dialplan.>            ← Park/Audio control (wildcard)  │
+│  • freeswitch.cmd.status[.{node_id}]    ← Module statistics              │
 │  • freeswitch.events.*                  → Events (pub/sub)               │
 └────────┬──────────────────────────────────────────┬──────────────┘
          │                                          │
@@ -127,6 +146,7 @@ Connect two legs dynamically:
 Real-time module metrics:
 ```json
 {
+  "version": "2.0.0",
   "uptime": 3600,
   "events_published": 12345,
   "commands_received": 5432,
@@ -251,6 +271,7 @@ Edit `/etc/freeswitch/autoload_configs/event_agent.conf.xml`:
     <param name="url" value="nats://localhost:4222"/>
     <param name="subject_prefix" value="freeswitch"/>
     <param name="node-id" value="fs-node-01"/>
+    <param name="log-level" value="info"/>
     
     <!-- Event filtering -->
     <param name="include-events" value="CHANNEL_CREATE,CHANNEL_ANSWER,CHANNEL_HANGUP"/>
@@ -258,6 +279,17 @@ Edit `/etc/freeswitch/autoload_configs/event_agent.conf.xml`:
   </settings>
 </configuration>
 ```
+
+#### Runtime Log Level Control
+
+Set the default verbosity via the `log-level` parameter above (accepted values: `debug`, `info`, `notice`, `warning`, `err`, `crit`, `alert`, `emerg`). You can also change it on the fly without touching the filesystem by sending a request to `freeswitch.cmd.status`:
+
+```bash
+nats req freeswitch.cmd.status '{"log_level":"debug"}'
+```
+
+The reply always includes the current level under `data.log_level`. When a change is applied you will also see `data.log_level_updated: true`, making it easy to confirm that the new verbosity is active across the cluster.
+
 
 ### 4. Load Module
 
@@ -280,6 +312,18 @@ cd example
 npm install
 node server.js
 # Open http://localhost:3000
+```
+
+### 6. Build Docker Images (optional)
+
+Need prebuilt containers with the module already compiled and FreeSWITCH ready?
+
+```bash
+# Build mod_event_agent runtime image
+make docker-build
+
+# Build FreeSWITCH + mod_event_agent bundle
+make docker-build-freeswitch
 ```
 
 ---
@@ -341,7 +385,7 @@ mod_events_agent/
 | Subject | Description | Reply |
 |---------|-------------|-------|
 | `freeswitch.api[.{node_id}]` | Execute any FS API command | ✅ Yes |
-| `freeswitch.cmd.status[.{node_id}]` | Get module statistics | ✅ Yes |
+| `freeswitch.cmd.status[.{node_id}]` | Get module statistics / set log level | ✅ Yes |
 
 ### Call Control
 

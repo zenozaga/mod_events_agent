@@ -1,4 +1,4 @@
-FROM mod_event_agent:latest AS builder
+FROM mod_events_agent:latest AS builder
 
 FROM drachtio/drachtio-freeswitch-mrf:latest
 

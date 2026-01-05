@@ -16,6 +16,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
     
     globals.pool = pool;
     globals.startup_time = time(NULL);
+    globals.log_level = SWITCH_LOG_INFO;
     
     switch_mutex_init(&globals.mutex, SWITCH_MUTEX_NESTED, globals.pool);
 
@@ -26,6 +27,13 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
         EVENT_LOG_ERROR("Failed to load configuration");
         return SWITCH_STATUS_FALSE;
     }
+
+    switch_log_printf(SWITCH_CHANNEL_LOG,
+                      SWITCH_LOG_NOTICE,
+                      "[mod_event_agent] version %s starting (node=%s, log=%s)",
+                      MOD_EVENT_AGENT_VERSION,
+                      globals.node_id ? globals.node_id : "unknown",
+                      switch_log_level2str(globals.log_level));
 
     if (strcasecmp(globals.driver_name, "nats") == 0) {
 #ifdef WITH_NATS
