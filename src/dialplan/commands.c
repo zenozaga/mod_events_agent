@@ -233,7 +233,7 @@ static void dispatch_dialplan_command(const char *subject, const char *data, siz
     size_t dialplan_len = strlen(dialplan_prefix);
 
     if (strncmp(suffix, dialplan_prefix, dialplan_len) != 0) {
-        publish_simple_response(reply_subject, SWITCH_FALSE, "Unsupported dialplan subject");
+        /* Not a dialplan command; let other handlers manage it */
         return;
     }
 
