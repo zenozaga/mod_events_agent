@@ -103,6 +103,14 @@ static void dispatch_command(const char *subject, const char *data, size_t len, 
     }
 
     const char *command_name = cmd_item->valuestring;
+    switch_log_printf(SWITCH_CHANNEL_LOG,
+                      SWITCH_LOG_DEBUG,
+                      "[mod_event_agent] Received command %s via %s (reply=%s, async=%s)",
+                      command_name,
+                      subject ? subject : "<unknown>",
+                      reply_to ? reply_to : "<none>",
+                      async == SWITCH_TRUE ? "true" : "false");
+
     command_handler_fn handler = lookup_handler(command_name);
     if (!handler) {
         handler = g_default_handler;
