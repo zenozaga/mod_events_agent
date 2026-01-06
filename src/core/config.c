@@ -1,5 +1,7 @@
 #include "mod_event_agent.h"
 
+#define EVENT_FILTER_CAP 128
+
 switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
 {
     switch_xml_t cfg, xml, settings, param;
@@ -69,15 +71,27 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
             globals.publish_all_events = switch_true(value);
         }
         else if (!strcasecmp(name, "include")) {
+            globals.include_count = 0;
+            globals.include_events = NULL;
             if (!zstr(value)) {
-                globals.include_count = switch_separate_string((char *)value, ',', 
-                                                               globals.include_events, 100);
+                char *include_copy = switch_core_strdup(pool, value);
+                char **include_slots = switch_core_alloc(pool, sizeof(char *) * EVENT_FILTER_CAP);
+                memset(include_slots, 0, sizeof(char *) * EVENT_FILTER_CAP);
+                globals.include_events = include_slots;
+                globals.include_count = switch_separate_string(include_copy, ',', include_slots, EVENT_FILTER_CAP);
+                EVENT_LOG_INFO("Configured %u include event filters", globals.include_count);
             }
         }
         else if (!strcasecmp(name, "exclude")) {
+            globals.exclude_count = 0;
+            globals.exclude_events = NULL;
             if (!zstr(value)) {
-                globals.exclude_count = switch_separate_string((char *)value, ',',
-                                                               globals.exclude_events, 100);
+                char *exclude_copy = switch_core_strdup(pool, value);
+                char **exclude_slots = switch_core_alloc(pool, sizeof(char *) * EVENT_FILTER_CAP);
+                memset(exclude_slots, 0, sizeof(char *) * EVENT_FILTER_CAP);
+                globals.exclude_events = exclude_slots;
+                globals.exclude_count = switch_separate_string(exclude_copy, ',', exclude_slots, EVENT_FILTER_CAP);
+                EVENT_LOG_INFO("Configured %u exclude event filters", globals.exclude_count);
             }
         }
     }

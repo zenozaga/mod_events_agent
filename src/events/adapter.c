@@ -65,18 +65,29 @@ void event_callback(switch_event_t *event)
     char *subject = NULL;
     switch_status_t status;
     int num_subscribers = 0;
+    const char *event_name = NULL;
+
+    if (!event) {
+        EVENT_LOG_WARNING("event_callback invoked with NULL event");
+        return;
+    }
+
+    event_name = switch_event_name(event->event_id);
+    EVENT_LOG_DEBUG("event_callback entered (%s)", event_name ? event_name : "unknown");
 
     if (!globals.running || !globals.driver || !globals.driver->is_connected(globals.driver)) {
+        EVENT_LOG_DEBUG("Skipping event %s: driver not ready", event_name ? event_name : "unknown");
         return;
     }
 
     if (!should_publish_event(event)) {
+        EVENT_LOG_DEBUG("Event %s filtered out (include/exclude rules)", event_name ? event_name : "unknown");
         return;
     }
 
     subject = build_subject(event);
     if (!subject) {
-        EVENT_LOG_ERROR("Failed to build subject for event");
+        EVENT_LOG_ERROR("Failed to build subject for event %s", event_name ? event_name : "unknown");
         return;
     }
 
@@ -86,27 +97,34 @@ void event_callback(switch_event_t *event)
     
     if (num_subscribers == 0) {
         globals.events_skipped_no_subscribers++;
+        EVENT_LOG_DEBUG("Skipping event %s: no subscribers on %s", event_name ? event_name : "unknown", subject);
         switch_safe_free(subject);
         return;
     }
 
     json_str = serialize_event_to_json(event, globals.node_id);
     if (!json_str) {
-        EVENT_LOG_ERROR("Failed to serialize event to JSON");
+        EVENT_LOG_ERROR("Failed to serialize event %s to JSON", event_name ? event_name : "unknown");
         switch_safe_free(subject);
         return;
     }
 
-    status = globals.driver->publish(globals.driver, subject, json_str, strlen(json_str));
+    size_t payload_len = strlen(json_str);
+    EVENT_LOG_DEBUG("Publishing event %s to %s (%zu bytes)", event_name ? event_name : "unknown", subject, payload_len);
+
+    status = globals.driver->publish(globals.driver, subject, json_str, payload_len);
     if (status != SWITCH_STATUS_SUCCESS) {
         globals.events_failed++;
+        EVENT_LOG_WARNING("Driver failed to publish event %s to %s", event_name ? event_name : "unknown", subject);
     } else {
         globals.events_published++;
-        globals.bytes_published += strlen(json_str);
+        globals.bytes_published += payload_len;
+        EVENT_LOG_DEBUG("Event %s published successfully", event_name ? event_name : "unknown");
     }
 
     free_serialized_event(json_str);
     switch_safe_free(subject);
+    EVENT_LOG_DEBUG("event_callback exit (%s)", event_name ? event_name : "unknown");
 }
 
 switch_status_t event_adapter_init(void)

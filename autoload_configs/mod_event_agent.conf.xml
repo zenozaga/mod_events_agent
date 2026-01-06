@@ -13,13 +13,13 @@
     <param name="nkey_seed" value=""/>
     
     <!-- Event Publishing -->
-    <param name="publish_all_events" value="false"/>
+    <param name="publish_all_events" value="true"/>
     <param name="include" value=""/>
     <param name="exclude" value="DTMF,HEARTBEAT"/>
     <param name="subject_prefix" value="freeswitch"/>
     
     <!-- Logging -->
-    <param name="log-level" value="info"/>
+    <param name="log-level" value="debug"/>
 
     <!-- Cluster Node ID -->
     <param name="node_id" value="$${agent_node_id}"/>

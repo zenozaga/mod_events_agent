@@ -12,6 +12,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
 {
     switch_status_t status;
 
+    EVENT_LOG_DEBUG("Entering mod_event_agent_load");
+
     memset(&globals, 0, sizeof(globals));
     
     globals.pool = pool;
@@ -22,7 +24,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
 
     EVENT_LOG_INFO("Loading mod_event_agent version %s", MOD_EVENT_AGENT_VERSION);
 
+    EVENT_LOG_DEBUG("Loading configuration");
     status = event_agent_config_load(globals.pool);
+
+    
     if (status != SWITCH_STATUS_SUCCESS) {
         EVENT_LOG_ERROR("Failed to load configuration");
         return SWITCH_STATUS_FALSE;
@@ -37,6 +42,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
 
     if (strcasecmp(globals.driver_name, "nats") == 0) {
 #ifdef WITH_NATS
+        EVENT_LOG_DEBUG("Creating NATS driver instance");
         globals.driver = driver_nats_create(globals.pool);
 #else
         EVENT_LOG_ERROR("NATS driver not compiled (need WITH_NATS=1)");
@@ -52,12 +58,14 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
         return SWITCH_STATUS_FALSE;
     }
 
+    EVENT_LOG_DEBUG("Initializing %s driver", globals.driver->name);
     status = globals.driver->init(globals.driver, globals.config);
     if (status != SWITCH_STATUS_SUCCESS) {
         EVENT_LOG_ERROR("Failed to initialize driver");
         return SWITCH_STATUS_FALSE;
     }
 
+    EVENT_LOG_DEBUG("Connecting %s driver", globals.driver->name);
     status = globals.driver->connect(globals.driver);
     if (status != SWITCH_STATUS_SUCCESS) {
         EVENT_LOG_ERROR("Failed to connect driver");
@@ -65,6 +73,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
         return SWITCH_STATUS_FALSE;
     }
 
+    EVENT_LOG_DEBUG("Initializing event adapter");
     status = event_adapter_init();
     if (status != SWITCH_STATUS_SUCCESS) {
         EVENT_LOG_ERROR("Failed to initialize event adapter");
@@ -73,6 +82,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
         return SWITCH_STATUS_FALSE;
     }
 
+    EVENT_LOG_DEBUG("Initializing dialplan manager");
     status = dialplan_manager_init(&globals.dialplan_manager, globals.pool);
     if (status != SWITCH_STATUS_SUCCESS) {
         EVENT_LOG_WARNING("Failed to initialize dialplan manager (dialplan control disabled)");
@@ -80,6 +90,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
         EVENT_LOG_INFO("Dialplan manager initialized - park mode available");
     }
 
+    EVENT_LOG_DEBUG("Initializing command handler");
     status = command_handler_init(globals.driver, globals.pool, globals.dialplan_manager);
     
     if (status != SWITCH_STATUS_SUCCESS) {
@@ -96,6 +107,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
     EVENT_LOG_INFO("mod_event_agent loaded successfully (driver: %s)", globals.driver->name);
     EVENT_LOG_INFO("Publishing events to: %s.events.*", globals.subject_prefix);
 
+    EVENT_LOG_DEBUG("mod_event_agent_load completed successfully");
+
     *module_interface = switch_loadable_module_create_module_interface(pool, modname);
 
     return SWITCH_STATUS_SUCCESS;
@@ -103,6 +116,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
 
 SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_event_agent_shutdown)
 {
+    EVENT_LOG_DEBUG("Entering mod_event_agent_shutdown");
     EVENT_LOG_INFO("Shutting down mod_event_agent");
 
     globals.running = SWITCH_FALSE;
@@ -116,6 +130,7 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_event_agent_shutdown)
     }
 
     if (globals.driver) {
+        EVENT_LOG_DEBUG("Disconnecting driver %s", globals.driver->name);
         globals.driver->disconnect(globals.driver);
         globals.driver->shutdown(globals.driver);
     }
@@ -127,5 +142,6 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_event_agent_shutdown)
                  (unsigned long long)globals.events_failed,
                  (unsigned long long)globals.events_skipped_no_subscribers);
 
+    EVENT_LOG_DEBUG("mod_event_agent_shutdown completed");
     return SWITCH_STATUS_SUCCESS;
 }
