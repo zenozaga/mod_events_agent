@@ -1,6 +1,8 @@
 #include "core.h"
 #include <cjson/cJSON.h>
 
+#define COMMAND_DEFAULT_SUCCESS_MSG "Command executed"
+
 static command_stats_t g_stats = {0};
 
 uint64_t command_current_timestamp_us(void) {
@@ -79,4 +81,38 @@ void command_stats_get(uint64_t *requests, uint64_t *success, uint64_t *failed) 
     if (requests) *requests = g_stats.requests_received;
     if (success) *success = g_stats.requests_success;
     if (failed) *failed = g_stats.requests_failed;
+}
+
+command_result_t command_result_ok(void) {
+    command_result_t result = {0};
+    result.message = COMMAND_DEFAULT_SUCCESS_MSG;
+    return result;
+}
+
+command_result_t command_result_from_string(const char *value) {
+    command_result_t result = command_result_ok();
+    if (value) {
+        result.data = cJSON_CreateString(value);
+    }
+    return result;
+}
+
+command_result_t command_result_error(const char *message) {
+    command_result_t result = {0};
+    const char *fallback = message ? message : "Unknown error";
+    result.error = switch_safe_strdup(fallback);
+    result.message = result.error;
+    return result;
+}
+
+void command_result_free(command_result_t *result) {
+    if (!result) {
+        return;
+    }
+    if (result->data) {
+        cJSON_Delete(result->data);
+        result->data = NULL;
+    }
+    switch_safe_free(result->error);
+    result->message = NULL;
 }

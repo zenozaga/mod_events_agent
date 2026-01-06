@@ -69,7 +69,7 @@ void event_callback(switch_event_t *event);
 char *serialize_event_to_json(switch_event_t *event, const char *node_id);
 void free_serialized_event(char *json);
 
-switch_status_t command_handler_init(event_driver_t *driver, switch_memory_pool_t *pool);
+switch_status_t command_handler_init(event_driver_t *driver, switch_memory_pool_t *pool, dialplan_manager_t *dialplan_manager);
 void command_handler_shutdown(void);
 void command_handler_get_stats(uint64_t *requests, uint64_t *success, uint64_t *failed);
 

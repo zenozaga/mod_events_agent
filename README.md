@@ -57,11 +57,8 @@ Every synchronous command reply comes in the same JSON envelope so client code c
 │                      (Pub/Sub + Request/Reply)                    │
 │                                                                    │
 │  Subjects:                                                         │
-│  • freeswitch.api[.{node_id}]           ← Generic API (req/reply)        │
-│  • freeswitch.cmd.originate[.{node_id}]  ← Origination commands          │
-│  • freeswitch.cmd.hangup[.{node_id}]     ← Hangup commands               │
-│  • freeswitch.cmd.dialplan.>            ← Park/Audio control (wildcard)  │
-│  • freeswitch.cmd.status[.{node_id}]    ← Module statistics              │
+│  • freeswitch.api                        ← Broadcast command lane        │
+│  • freeswitch.node.{node_id}             ← Direct node lane              │
 │  • freeswitch.events.*                  → Events (pub/sub)               │
 └────────┬──────────────────────────────────────────┬──────────────┘
          │                                          │
@@ -107,6 +104,17 @@ Every synchronous command reply comes in the same JSON envelope so client code c
 
 ---
 
+## 🔁 Command Routing
+
+- Publish to **`freeswitch.api`** for broadcast commands. Optionally add `"node_id":"fs-node-01"` in the payload to have a single node pick it up.
+- Publish to **`freeswitch.node.{node_id}`** when you want to address a specific FreeSWITCH node directly (no `node_id` field required).
+- Every payload must include a `command` string. Built-in handlers cover `originate`, `hangup`, `dialplan.enable`, `dialplan.disable`, `dialplan.audio`, `dialplan.autoanswer`, `dialplan.status`, and `agent.status`. Any other value falls back to native FreeSWITCH `api` execution, so `{"command":"show","args":"channels"}` still works.
+- Add `"async": true` to make any command fire-and-forget. The request will be executed but no reply will be published; errors are still logged server-side for observability.
+
+This registry-driven approach keeps clients simple (only two subjects to remember) while letting the server retain full validation, RBAC, and telemetry per command name.
+
+---
+
 ## ✨ Features
 
 ### 🎯 Remote Control Commands
@@ -114,16 +122,16 @@ Every synchronous command reply comes in the same JSON envelope so client code c
 #### 1. Generic API Execution
 Execute **any** FreeSWITCH API command remotely:
 ```bash
-# Get system status
-freeswitch.api → "status"
-freeswitch.api → "show channels"
-freeswitch.api → "reloadxml"
+nats req freeswitch.api '{"command":"status"}'
+nats req freeswitch.api '{"command":"show","args":"channels"}'
+nats req freeswitch.api '{"command":"reloadxml"}'
 ```
 
 #### 2. Call Origination
 Create outbound calls with full control:
 ```json
 {
+  "command": "originate",
   "endpoint": "user/1000",
   "destination": "&park",
   "caller_id_name": "Bot",
@@ -133,12 +141,11 @@ Create outbound calls with full control:
 ```
 
 #### 3. Call Bridging
-Connect two legs dynamically:
+Connect two legs dynamically using native FreeSWITCH commands:
 ```json
 {
-  "uuid": "abc-123-uuid",
-  "destination": "sofia/gateway/provider/5551234",
-  "caller_id_name": "Transfer"
+  "command": "uuid_bridge",
+  "args": "abc-123-uuid sofia/gateway/provider/5551234"
 }
 ```
 
@@ -146,6 +153,7 @@ Connect two legs dynamically:
 Real-time module metrics:
 ```json
 {
+  "command": "agent.status",
   "version": "2.0.0",
   "uptime": 3600,
   "events_published": 12345,
@@ -155,6 +163,45 @@ Real-time module metrics:
 }
 ```
 
+### 🛡️ Payload Validation Helpers
+
+Every built-in command now uses the lightweight validators under `src/validation/`. They provide
+type-safe binding and descriptive errors without relying on giant schema files or runtime
+allocations. The helpers follow the `v_<type>()` pattern and automatically write the sanitized
+value into your payload struct:
+
+```c
+typedef struct {
+  char endpoint[256];
+  char extension[256];
+} call_originate_payload_t;
+
+call_originate_payload_t payload = {0};
+const char *err = NULL;
+
+if ((err = v_string(request->payload, &payload, endpoint,
+          v_len(1, 255),
+          "endpoint must be between 1 and 255 characters"))) {
+  return command_result_error(err);
+}
+
+if ((err = v_enum(request->payload, &payload, mode,
+          "mode must be silence, ringback, or music",
+          "silence", "ringback", "music"))) {
+  return command_result_error(err);
+}
+```
+
+Available helpers:
+
+- `v_string` / `v_string_opt` with `v_len`, `v_len_min`, `v_len_max`
+- `v_number` / `v_number_opt` with `v_range` rules
+- `v_bool` / `v_bool_opt`
+- `v_enum` / `v_enum_opt`
+
+They short-circuit on the first failure so command handlers stay tiny while clients receive human
+readable messages.
+
 ### 🎛️ Dynamic Dialplan Control
 
 Control call flow without reloading dialplan:
@@ -162,22 +209,23 @@ Control call flow without reloading dialplan:
 #### Park Mode with Audio Options
 ```bash
 # Enable park with ringback tone
-freeswitch.cmd.dialplan.enable → All calls intercepted
-freeswitch.cmd.dialplan.audio {"mode": "ringback"}
+nats req freeswitch.api '{"command":"dialplan.enable"}'
+nats req freeswitch.api '{"command":"dialplan.audio","mode":"ringback"}'
 
 # Music on hold
-freeswitch.cmd.dialplan.audio {"mode": "music", "music_class": "moh"}
+nats req freeswitch.api '{"command":"dialplan.audio","mode":"music","music_class":"moh"}'
 
 # Silent park
-freeswitch.cmd.dialplan.audio {"mode": "silence"}
+nats req freeswitch.api '{"command":"dialplan.audio","mode":"silence"}'
 
 # Disable park (return to normal dialplan)
-freeswitch.cmd.dialplan.disable
+nats req freeswitch.api '{"command":"dialplan.disable"}'
 ```
 
 #### Auto-Answer Configuration
 ```json
 {
+  "command": "dialplan.autoanswer",
   "enabled": true  // Auto-answer parked calls
 }
 ```
@@ -282,10 +330,10 @@ Edit `/etc/freeswitch/autoload_configs/event_agent.conf.xml`:
 
 #### Runtime Log Level Control
 
-Set the default verbosity via the `log-level` parameter above (accepted values: `debug`, `info`, `notice`, `warning`, `err`, `crit`, `alert`, `emerg`). You can also change it on the fly without touching the filesystem by sending a request to `freeswitch.cmd.status`:
+Set the default verbosity via the `log-level` parameter above (accepted values: `debug`, `info`, `notice`, `warning`, `err`, `crit`, `alert`, `emerg`). You can also change it on the fly without touching the filesystem:
 
 ```bash
-nats req freeswitch.cmd.status '{"log_level":"debug"}'
+nats req freeswitch.api '{"command":"agent.status","log_level":"debug"}'
 ```
 
 The reply always includes the current level under `data.log_level`. When a change is applied you will also see `data.log_level_updated: true`, making it easy to confirm that the new verbosity is active across the cluster.
@@ -302,10 +350,10 @@ fs_cli -x "load mod_event_agent"
 
 ```bash
 # Using NATS CLI (sync request)
-nats req freeswitch.api '{"command":"status"}' --server nats://localhost:4222
+nats req freeswitch.api '{"command":"show","args":"modules"}' --server nats://localhost:4222
 
 # Using NATS CLI (async fire-and-forget)
-nats pub freeswitch.cmd.async.originate '{"endpoint":"user/1000","extension":"&park"}'
+nats pub freeswitch.api '{"command":"originate","endpoint":"user/1000","extension":"&park","async":true}'
 
 # Using web interface
 cd example
@@ -325,6 +373,8 @@ make docker-build
 # Build FreeSWITCH + mod_event_agent bundle
 make docker-build-freeswitch
 ```
+
+Both Docker targets are self-contained: the builder stages compile `mod_event_agent` from the local sources (including NATS) so CI/CD runners do **not** need to pull a pre-built `mod_events_agent` image or have access to any private registry. This avoids `pull access denied` errors on GitHub Actions while keeping the artifacts identical to the on-prem workflow.
 
 ---
 
@@ -355,6 +405,10 @@ mod_events_agent/
 │   │   ├── call.c                 # Originate/Hangup commands
 │   │   └── status.c               # Statistics & health
 │   │
+│   ├── validation/                # Shared payload helpers
+│   │   ├── validation.c           # v_string/v_enum/... implementations
+│   │   └── validation.h           # Helper macros (v_len, v_range, etc.)
+│   │
 │   └── drivers/                   # Message broker drivers
 │       ├── interface.h            # Driver interface definition
 │       └── nats.c                 # NATS implementation
@@ -380,33 +434,24 @@ mod_events_agent/
 
 ## 🎯 Available Commands
 
-### Core Commands
-
-| Subject | Description | Reply |
+| Command | Description | Reply |
 |---------|-------------|-------|
-| `freeswitch.api[.{node_id}]` | Execute any FS API command | ✅ Yes |
-| `freeswitch.cmd.status[.{node_id}]` | Get module statistics / set log level | ✅ Yes |
+| `originate` | Create outbound call with endpoint/extension/context fields | ✅ Yes |
+| `hangup` | Terminate a UUID with optional `cause` | ✅ Yes |
+| `agent.status` | Module stats + runtime log-level updates | ✅ Yes |
+| `dialplan.enable` | Enable park mode | ✅ Yes |
+| `dialplan.disable` | Disable park mode | ✅ Yes |
+| `dialplan.audio` | Configure park audio (`mode`, optional `music_class`) | ✅ Yes |
+| `dialplan.autoanswer` | Toggle auto-answer for parked calls | ✅ Yes |
+| `dialplan.status` | Snapshot of park manager state | ✅ Yes |
 
-### Call Control
+Any other `command` value is passed directly to the native FreeSWITCH API, so `"command":"status"`, `"command":"show"`, `"command":"uuid_bridge"`, etc., keep working without extra configuration.
 
-| Subject | Description | Reply |
-|---------|-------------|-------|
-| `freeswitch.cmd.originate[.{node_id}]` | Create outbound call | ✅ Yes |
-| `freeswitch.cmd.hangup[.{node_id}]` | Hang up a UUID with cause | ✅ Yes |
-| `freeswitch.cmd.async.originate[.{node_id}]` | Fire-and-forget originate | ➖ No (async) |
-| `freeswitch.cmd.async.hangup[.{node_id}]` | Fire-and-forget hangup | ➖ No (async) |
+> ℹ️ Bridge, transfer, and media manipulation go through the native API fallback with commands such as `uuid_bridge`, `uuid_transfer`, `uuid_broadcast`, etc.
 
-> ℹ️ Bridge or transfer calls via `freeswitch.api` using native FS commands such as `uuid_bridge`, `uuid_transfer`, etc.
+### Async Delivery
 
-### Dialplan Control
-
-| Subject | Description | Reply |
-|---------|-------------|-------|
-| `freeswitch.cmd.dialplan.enable` | Enable park mode | ✅ Yes |
-| `freeswitch.cmd.dialplan.disable` | Disable park mode | ✅ Yes |
-| `freeswitch.cmd.dialplan.audio` | Set audio mode | ✅ Yes |
-| `freeswitch.cmd.dialplan.autoanswer` | Configure auto-answer | ✅ Yes |
-| `freeswitch.cmd.dialplan.status` | Get dialplan status | ✅ Yes |
+Add `"async": true` to any payload when you do not need a reply. The server still executes the handler, updates metrics, and logs errors, but the request immediately returns on the client side.
 
 ### Events (Pub/Sub)
 
@@ -427,7 +472,7 @@ mod_events_agent/
 ```xml
 <param name="driver" value="nats"/>              <!-- Driver: nats (others in roadmap) -->
 <param name="url" value="nats://host:4222"/>     <!-- Broker connection URL -->
-<param name="subject_prefix" value="freeswitch"/> <!-- Subject prefix (freeswitch.api, freeswitch.cmd.*) -->
+<param name="subject_prefix" value="freeswitch"/> <!-- Subject prefix (freeswitch.api, freeswitch.node.*) -->
 <param name="node-id" value="fs-node-01"/>       <!-- Unique node identifier -->
 ```
 

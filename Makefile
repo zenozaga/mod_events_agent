@@ -8,10 +8,19 @@ CC = gcc
 CFLAGS = -fPIC -Wall -Werror -g -O2 -std=gnu99
 
 # FreeSWITCH include directory (can be overridden)
-FREESWITCH_INCLUDE_DIR ?= /tmp/freeswitch_headers
+ifeq ($(OS),Windows_NT)
+	DEFAULT_FS_HEADERS := C:/tmp/freeswitch_headers
+	DEFAULT_FS_LIBTELETONE := C:/tmp/freeswitch/libs/libteletone/src
+else
+	DEFAULT_FS_HEADERS := /tmp/freeswitch_headers
+	DEFAULT_FS_LIBTELETONE := /tmp/freeswitch/libs/libteletone/src
+endif
+
+FREESWITCH_INCLUDE_DIR ?= $(DEFAULT_FS_HEADERS)
+FREESWITCH_LIBTELETONE_DIR ?= $(DEFAULT_FS_LIBTELETONE)
 
 CFLAGS += -I$(FREESWITCH_INCLUDE_DIR)
-CFLAGS += -I/tmp/freeswitch/libs/libteletone/src
+CFLAGS += -I$(FREESWITCH_LIBTELETONE_DIR)
 CFLAGS += -I/usr/local/include
 CFLAGS += -I./include
 CFLAGS += -I./src
@@ -47,7 +56,8 @@ SOURCES = src/mod_event_agent.c \
           src/commands/core.c \
           src/commands/call.c \
           src/commands/api.c \
-          src/commands/status.c
+		  src/commands/status.c \
+		  src/validation/validation.c
 
 # Driver sources
 ifeq ($(WITH_NATS),1)

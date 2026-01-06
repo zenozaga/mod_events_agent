@@ -1,295 +1,237 @@
 #include "commands.h"
 #include "manager.h"
-#include "../mod_event_agent.h"
 #include "../commands/core.h"
-#include <switch.h>
-#include <string.h>
+#include "validation/validation.h"
+
+// ============================
+// Dialplan Command Handlers
+// ============================
 
 static dialplan_manager_t *g_dialplan_manager = NULL;
-static event_driver_t *g_driver = NULL;
 
-static const char *get_subject_prefix(void)
-{
-    extern mod_event_agent_globals_t globals;
-    return (globals.subject_prefix && *globals.subject_prefix) ? globals.subject_prefix : DEFAULT_SUBJECT_PREFIX;
-}
+// ---------- Helpers ----------
 
-static void build_subject(char *buffer, size_t len, const char *suffix)
-{
-    switch_snprintf(buffer, len, "%s.%s", get_subject_prefix(), suffix);
-}
-
-static void publish_json_response(cJSON *response, const char *reply_subject)
-{
-    if (!response) {
-        return;
-    }
-
-    char *json_str = cJSON_PrintUnformatted(response);
-    if (json_str && g_driver && reply_subject) {
-        g_driver->publish(g_driver, reply_subject, json_str, strlen(json_str));
-    }
-    switch_safe_free(json_str);
-    cJSON_Delete(response);
-}
-
-static void publish_simple_response(const char *reply_subject, switch_bool_t success, const char *message)
-{
-    cJSON *response = build_json_response_object(success, message);
-    publish_json_response(response, reply_subject);
-}
-
-static void handle_dialplan_enable(const char *subject, const char *data, size_t data_len, const char *reply_subject, void *user_data)
-{
-    switch_bool_t success = SWITCH_FALSE;
-    const char *message = NULL;
-
+static command_result_t require_manager(void) {
     if (!g_dialplan_manager) {
-        message = "Dialplan manager not initialized";
-    } else if (dialplan_manager_set_mode(g_dialplan_manager, DIALPLAN_MODE_PARK) == SWITCH_STATUS_SUCCESS) {
-        success = SWITCH_TRUE;
-        message = "Park mode enabled";
-    } else {
-        message = "Failed to enable park mode";
+        return command_result_error("Dialplan manager not initialized");
     }
-
-    cJSON *response = build_json_response_object(success, message);
-    if (response && success) {
-        cJSON_AddStringToObject(response, "mode", "park");
-    }
-
-    publish_json_response(response, reply_subject);
+    return command_result_ok();
 }
 
-static void handle_dialplan_disable(const char *subject, const char *data, size_t data_len, const char *reply_subject, void *user_data)
-{
-    switch_bool_t success = SWITCH_FALSE;
-    const char *message = NULL;
+// ============================
+// dialplan.enable
+// ============================
 
-    if (!g_dialplan_manager) {
-        message = "Dialplan manager not initialized";
-    } else if (dialplan_manager_set_mode(g_dialplan_manager, DIALPLAN_MODE_DISABLED) == SWITCH_STATUS_SUCCESS) {
-        success = SWITCH_TRUE;
-        message = "Park mode disabled";
-    } else {
-        message = "Failed to disable park mode";
+static command_result_t dialplan_enable(const command_request_t *request) {
+    command_result_t guard = require_manager();
+    if (guard.error) {
+        return guard;
     }
 
-    cJSON *response = build_json_response_object(success, message);
-    if (response && success) {
-        cJSON_AddStringToObject(response, "mode", "disabled");
+    if (dialplan_manager_set_mode(g_dialplan_manager, DIALPLAN_MODE_PARK) != SWITCH_STATUS_SUCCESS) {
+        return command_result_error("Failed to enable park mode");
     }
 
-    publish_json_response(response, reply_subject);
+    cJSON *data = cJSON_CreateObject();
+    if (data) {
+        cJSON_AddStringToObject(data, "mode", "park");
+    }
+
+    command_result_t result = command_result_ok();
+    result.message = "Park mode enabled";
+    result.data = data;
+    return result;
 }
 
-static void handle_dialplan_audio(const char *subject, const char *data, size_t data_len, const char *reply_subject, void *user_data)
-{
-    cJSON *request = NULL;
-    switch_bool_t success = SWITCH_FALSE;
-    const char *message = NULL;
-    const char *mode_str = NULL;
+// ============================
+// dialplan.disable
+// ============================
 
-    if (!g_dialplan_manager) {
-        message = "Dialplan manager not initialized";
-        goto publish;
+static command_result_t dialplan_disable(const command_request_t *request) {
+    command_result_t guard = require_manager();
+    if (guard.error) {
+        return guard;
     }
 
-    request = cJSON_Parse(data);
-    if (!request) {
-        message = "Invalid JSON payload";
-        goto publish;
+    if (dialplan_manager_set_mode(g_dialplan_manager, DIALPLAN_MODE_DISABLED) != SWITCH_STATUS_SUCCESS) {
+        return command_result_error("Failed to disable park mode");
     }
 
-    cJSON *mode_obj = cJSON_GetObjectItem(request, "mode");
-    if (!mode_obj || !cJSON_IsString(mode_obj)) {
-        message = "Missing 'mode' field";
-        goto publish;
+    cJSON *data = cJSON_CreateObject();
+    if (data) {
+        cJSON_AddStringToObject(data, "mode", "disabled");
     }
 
-    mode_str = mode_obj->valuestring;
+    command_result_t result = command_result_ok();
+    result.message = "Park mode disabled";
+    result.data = data;
+    return result;
+}
+
+// ============================
+// dialplan.audio
+// ============================
+
+// Payload + Schema
+
+typedef struct {
+    char mode[8];
+    char music_class[64];
+} dialplan_audio_payload_t;
+
+static const char *validate_audio_payload(cJSON *json, dialplan_audio_payload_t *payload) {
+    const char *err = v_enum(json, payload, mode,
+                             "Invalid mode. Use silence, ringback, or music",
+                             "silence", "ringback", "music");
+    if (err) {
+        return err;
+    }
+
+    err = v_string_opt(json, payload, music_class,
+                       v_len_max(63),
+                       "music_class must be 63 characters or fewer");
+    return err;
+}
+
+static command_result_t dialplan_audio(const command_request_t *request) {
+    command_result_t guard = require_manager();
+    if (guard.error) {
+        return guard;
+    }
+
+    dialplan_audio_payload_t payload = {0};
+    const char *validation_error = validate_audio_payload(request->payload, &payload);
+    if (validation_error) {
+        return command_result_error(validation_error);
+    }
+
+    const char *mode_str = payload.mode;
     audio_mode_t audio_mode;
 
-    if (strcmp(mode_str, "silence") == 0) {
+    if (!strcmp(mode_str, "silence")) {
         audio_mode = AUDIO_MODE_SILENCE;
-    } else if (strcmp(mode_str, "ringback") == 0) {
+    } else if (!strcmp(mode_str, "ringback")) {
         audio_mode = AUDIO_MODE_RINGBACK;
-    } else if (strcmp(mode_str, "music") == 0) {
+    } else if (!strcmp(mode_str, "music")) {
         audio_mode = AUDIO_MODE_MUSIC;
-
-        cJSON *music_class_obj = cJSON_GetObjectItem(request, "music_class");
-        if (music_class_obj && cJSON_IsString(music_class_obj)) {
-            dialplan_manager_set_music_class(g_dialplan_manager, music_class_obj->valuestring);
+        if (!switch_strlen_zero(payload.music_class)) {
+            dialplan_manager_set_music_class(g_dialplan_manager, payload.music_class);
         }
     } else {
-        message = "Invalid mode. Use: silence, ringback, or music";
-        goto publish;
+        return command_result_error("Invalid mode. Use: silence, ringback, or music");
     }
 
-    if (dialplan_manager_set_audio_mode(g_dialplan_manager, audio_mode) == SWITCH_STATUS_SUCCESS) {
-        success = SWITCH_TRUE;
-        message = "Audio mode updated";
-    } else {
-        message = "Failed to set audio mode";
+    if (dialplan_manager_set_audio_mode(g_dialplan_manager, audio_mode) != SWITCH_STATUS_SUCCESS) {
+        return command_result_error("Failed to set audio mode");
     }
 
-publish:
-    cJSON *response = build_json_response_object(success, message ? message : "Audio mode response");
-    if (response && mode_str) {
-        cJSON_AddStringToObject(response, "mode", mode_str);
+    cJSON *data = cJSON_CreateObject();
+    if (data) {
+        cJSON_AddStringToObject(data, "mode", mode_str);
     }
 
-    publish_json_response(response, reply_subject);
-
-    if (request) {
-        cJSON_Delete(request);
-    }
+    command_result_t result = command_result_ok();
+    result.message = "Audio mode updated";
+    result.data = data;
+    return result;
 }
 
-static void handle_dialplan_autoanswer(const char *subject, const char *data, size_t data_len, const char *reply_subject, void *user_data)
-{
-    cJSON *request = NULL;
-    switch_bool_t success = SWITCH_FALSE;
-    const char *message = NULL;
-    switch_bool_t enabled = SWITCH_FALSE;
-    switch_bool_t has_enabled_value = SWITCH_FALSE;
+// ============================
+// dialplan.autoanswer
+// ============================
 
-    if (!g_dialplan_manager) {
-        message = "Dialplan manager not initialized";
-        goto publish;
-    }
 
-    request = cJSON_Parse(data);
-    if (!request) {
-        message = "Invalid JSON payload";
-        goto publish;
-    }
+typedef struct {
+    uint8_t enabled;
+} dialplan_autoanswer_payload_t;
 
-    cJSON *enabled_obj = cJSON_GetObjectItem(request, "enabled");
-    if (!enabled_obj || !cJSON_IsBool(enabled_obj)) {
-        message = "Missing 'enabled' boolean field";
-        goto publish;
-    }
-
-    enabled = cJSON_IsTrue(enabled_obj) ? SWITCH_TRUE : SWITCH_FALSE;
-    has_enabled_value = SWITCH_TRUE;
-
-    if (dialplan_manager_set_auto_answer(g_dialplan_manager, enabled) == SWITCH_STATUS_SUCCESS) {
-        success = SWITCH_TRUE;
-        message = "Auto-answer updated";
-    } else {
-        message = "Failed to set auto-answer";
-    }
-
-publish:
-    cJSON *response = build_json_response_object(success, message ? message : "Auto-answer response");
-    if (response && has_enabled_value) {
-        cJSON_AddBoolToObject(response, "enabled", enabled);
-    }
-
-    publish_json_response(response, reply_subject);
-
-    if (request) {
-        cJSON_Delete(request);
-    }
+static const char *validate_autoanswer_payload(cJSON *json, dialplan_autoanswer_payload_t *payload) {
+    return v_bool(json, payload, enabled, "enabled must be a boolean flag");
 }
 
-static void handle_dialplan_status(const char *subject, const char *data, size_t data_len, const char *reply_subject, void *user_data)
-{
-    switch_bool_t success = SWITCH_FALSE;
-    const char *message = NULL;
-    switch_stream_handle_t stream = { 0 };
-
-    if (!g_dialplan_manager) {
-        message = "Dialplan manager not initialized";
-    } else {
-        SWITCH_STANDARD_STREAM(stream);
-        dialplan_manager_get_status(g_dialplan_manager, &stream);
-        success = SWITCH_TRUE;
-        message = "Dialplan status retrieved";
+static command_result_t dialplan_autoanswer(const command_request_t *request) {
+    command_result_t guard = require_manager();
+    if (guard.error) {
+        return guard;
     }
 
-    cJSON *response = build_json_response_object(success, message ? message : "Dialplan status");
-    if (response && success && stream.data) {
-        cJSON_AddStringToObject(response, "info", stream.data);
+    dialplan_autoanswer_payload_t payload = {0};
+    const char *validation_error = validate_autoanswer_payload(request->payload, &payload);
+    if (validation_error) {
+        return command_result_error(validation_error);
     }
 
-    publish_json_response(response, reply_subject);
+    const switch_bool_t enabled = payload.enabled ? SWITCH_TRUE : SWITCH_FALSE;
+    if (dialplan_manager_set_auto_answer(g_dialplan_manager, enabled) != SWITCH_STATUS_SUCCESS) {
+        return command_result_error("Failed to set auto-answer");
+    }
+
+    cJSON *data = cJSON_CreateObject();
+    if (data) {
+        cJSON_AddBoolToObject(data, "enabled", enabled);
+    }
+
+    command_result_t result = command_result_ok();
+    result.message = "Auto-answer updated";
+    result.data = data;
+    return result;
+}
+
+// ============================
+// dialplan.status
+// ============================
+
+static command_result_t dialplan_status(const command_request_t *request) {
+    command_result_t guard = require_manager();
+    if (guard.error) {
+        return guard;
+    }
+
+    switch_stream_handle_t stream = {0};
+    SWITCH_STANDARD_STREAM(stream);
+    dialplan_manager_get_status(g_dialplan_manager, &stream);
+
+    cJSON *data = cJSON_CreateObject();
+    if (data && stream.data) {
+        cJSON_AddStringToObject(data, "info", stream.data);
+    }
+
     switch_safe_free(stream.data);
+
+    command_result_t result = command_result_ok();
+    result.message = "Dialplan status retrieved";
+    result.data = data;
+    return result;
 }
 
-static void dispatch_dialplan_command(const char *subject, const char *data, size_t data_len, const char *reply_subject, void *user_data)
-{
-    const char *prefix = get_subject_prefix();
-    size_t prefix_len = strlen(prefix);
-
-    if (strncmp(subject, prefix, prefix_len) != 0 || subject[prefix_len] != '.') {
-        publish_simple_response(reply_subject, SWITCH_FALSE, "Invalid subject prefix");
-        return;
-    }
-
-    const char *suffix = subject + prefix_len + 1; /* skip dot */
-    static const char *dialplan_prefix = "cmd.dialplan.";
-    size_t dialplan_len = strlen(dialplan_prefix);
-
-    if (strncmp(suffix, dialplan_prefix, dialplan_len) != 0) {
-        /* Not a dialplan command; let other handlers manage it */
-        return;
-    }
-
-    const char *command = suffix + dialplan_len;
-
-    if (strcmp(command, "enable") == 0) {
-        handle_dialplan_enable(subject, data, data_len, reply_subject, user_data);
-    } else if (strcmp(command, "disable") == 0) {
-        handle_dialplan_disable(subject, data, data_len, reply_subject, user_data);
-    } else if (strcmp(command, "audio") == 0) {
-        handle_dialplan_audio(subject, data, data_len, reply_subject, user_data);
-    } else if (strcmp(command, "autoanswer") == 0) {
-        handle_dialplan_autoanswer(subject, data, data_len, reply_subject, user_data);
-    } else if (strcmp(command, "status") == 0) {
-        handle_dialplan_status(subject, data, data_len, reply_subject, user_data);
-    } else {
-        publish_simple_response(reply_subject, SWITCH_FALSE, "Unknown dialplan command");
-    }
-}
-
-switch_status_t command_dialplan_init(event_driver_t *driver, dialplan_manager_t *manager)
-{
-    if (!driver || !manager) {
+switch_status_t command_dialplan_init(dialplan_manager_t *manager) {
+    if (!manager) {
+        EVENT_LOG_WARNING("Dialplan manager unavailable; dialplan commands disabled");
         return SWITCH_STATUS_FALSE;
     }
-    
-    g_driver = driver;
-    g_dialplan_manager = manager;
-    
-    /* Subscribe to dialplan commands */
-    char subject[256];
 
-    build_subject(subject, sizeof(subject), ">");
-    driver->subscribe(driver, subject, dispatch_dialplan_command, NULL);
-    
-    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
-                     "Dialplan command handlers initialized\n");
-    
+    g_dialplan_manager = manager;
+
+    if (command_register_handler("dialplan.enable", dialplan_enable) != SWITCH_STATUS_SUCCESS) {
+        return SWITCH_STATUS_FALSE;
+    }
+    if (command_register_handler("dialplan.disable", dialplan_disable) != SWITCH_STATUS_SUCCESS) {
+        return SWITCH_STATUS_FALSE;
+    }
+    if (command_register_handler("dialplan.audio", dialplan_audio) != SWITCH_STATUS_SUCCESS) {
+        return SWITCH_STATUS_FALSE;
+    }
+    if (command_register_handler("dialplan.autoanswer", dialplan_autoanswer) != SWITCH_STATUS_SUCCESS) {
+        return SWITCH_STATUS_FALSE;
+    }
+    if (command_register_handler("dialplan.status", dialplan_status) != SWITCH_STATUS_SUCCESS) {
+        return SWITCH_STATUS_FALSE;
+    }
+
+    EVENT_LOG_INFO("Dialplan commands registered (enable/disable/audio/autoanswer/status)");
     return SWITCH_STATUS_SUCCESS;
 }
 
-void command_dialplan_shutdown(event_driver_t *driver)
-{
-    if (!driver) {
-        return;
-    }
-    
-    /* Unsubscribe from dialplan commands */
-    char subject[256];
-
-    build_subject(subject, sizeof(subject), ">");
-    driver->unsubscribe(driver, subject);
-    
-    g_driver = NULL;
+void command_dialplan_shutdown(void) {
     g_dialplan_manager = NULL;
-    
-    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
-                     "Dialplan command handlers shutdown\n");
 }

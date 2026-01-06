@@ -73,28 +73,22 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
         return SWITCH_STATUS_FALSE;
     }
 
-    status = command_handler_init(globals.driver, globals.pool);
-    
-    if (status != SWITCH_STATUS_SUCCESS) {
-        EVENT_LOG_WARNING("Failed to initialize command handler (commands disabled)");
-    } else {
-        EVENT_LOG_INFO("Command handler enabled - listening on %s.cmd.*",
-                globals.subject_prefix ? globals.subject_prefix : DEFAULT_SUBJECT_PREFIX);
-    }
-    
     status = dialplan_manager_init(&globals.dialplan_manager, globals.pool);
     if (status != SWITCH_STATUS_SUCCESS) {
         EVENT_LOG_WARNING("Failed to initialize dialplan manager (dialplan control disabled)");
     } else {
         EVENT_LOG_INFO("Dialplan manager initialized - park mode available");
-        
-        status = command_dialplan_init(globals.driver, globals.dialplan_manager);
-        if (status != SWITCH_STATUS_SUCCESS) {
-            EVENT_LOG_WARNING("Failed to initialize dialplan commands");
-        } else {
-            EVENT_LOG_INFO("Dialplan commands enabled - listening on %s.cmd.dialplan.*",
-                            globals.subject_prefix ? globals.subject_prefix : DEFAULT_SUBJECT_PREFIX);
-        }
+    }
+
+    status = command_handler_init(globals.driver, globals.pool, globals.dialplan_manager);
+    
+    if (status != SWITCH_STATUS_SUCCESS) {
+        EVENT_LOG_WARNING("Failed to initialize command handler (commands disabled)");
+    } else {
+        EVENT_LOG_INFO("Command handler enabled on %s.api and %s.node.%s",
+                       globals.subject_prefix ? globals.subject_prefix : DEFAULT_SUBJECT_PREFIX,
+                       globals.subject_prefix ? globals.subject_prefix : DEFAULT_SUBJECT_PREFIX,
+                       globals.node_id ? globals.node_id : "<any>");
     }
 
     globals.running = SWITCH_TRUE;
@@ -113,14 +107,13 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_event_agent_shutdown)
 
     globals.running = SWITCH_FALSE;
 
+    command_handler_shutdown();
+    event_adapter_shutdown();
+
     if (globals.dialplan_manager) {
-        command_dialplan_shutdown(globals.driver);
         dialplan_manager_shutdown(globals.dialplan_manager);
         globals.dialplan_manager = NULL;
     }
-
-    command_handler_shutdown();
-    event_adapter_shutdown();
 
     if (globals.driver) {
         globals.driver->disconnect(globals.driver);
