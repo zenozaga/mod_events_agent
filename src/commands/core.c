@@ -24,8 +24,11 @@ switch_bool_t should_process_request(cJSON *json) {
         return SWITCH_TRUE;
     }
     
-    EVENT_LOG_DEBUG("Skipping request - target node: %s, our node: %s", 
-                    target_node, globals.node_id ? globals.node_id : "unknown");
+    switch_log_printf(SWITCH_CHANNEL_LOG,
+                      SWITCH_LOG_DEBUG,
+                      "[mod_event_agent] Skipping request - target node: %s, our node: %s",
+                      target_node,
+                      globals.node_id ? globals.node_id : "unknown");
     return SWITCH_FALSE;
 }
 

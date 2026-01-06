@@ -3,7 +3,6 @@
 
 #include <switch.h>
 #include "drivers/interface.h"
-#include "core/logger.h"
 
 #define MOD_EVENT_AGENT_VERSION "2.0.0"
 #define DEFAULT_SUBJECT_PREFIX "freeswitch"
@@ -43,8 +42,6 @@ typedef struct {
     uint32_t include_count;
     uint32_t exclude_count;
 
-    switch_log_level_t log_level;
-    
     switch_bool_t running;
     uint64_t events_published;
     uint64_t events_failed;

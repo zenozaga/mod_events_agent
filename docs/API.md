@@ -138,7 +138,6 @@ API call happens. The table below summarizes the exact constraints enforced toda
 | `dialplan.audio` | `mode` | enum | required, one of `silence`, `ringback`, `music` |
 | `dialplan.audio` | `music_class` | string | optional, max length 63 |
 | `dialplan.autoanswer` | `enabled` | bool | required, literal `true`/`false` |
-| `agent.status` | `log_level` | enum | optional, one of `console`, `alert`, `crit`, `error`, `err`, `warning`, `notice`, `info`, `debug`, `emerg` |
 
 Future commands will follow the same pattern so client SDKs can rely on consistent validation
 messages.
@@ -209,12 +208,12 @@ Create an outbound call with full control (`"command": "originate"`).
 
 #### 2. Module Statistics
 
-Get mod_event_agent statistics and health (command `agent.status`). You can also change the module log level on the fly by adding `"log_level":"debug"` (or any other level) to the same request.
+Get mod_event_agent statistics and health (command `agent.status`). This endpoint now focuses purely on metrics—logging is controlled through standard FreeSWITCH facilities.
 
 **Request**:
 
 ```json
-{"command": "agent.status", "log_level": "debug"}
+{"command": "agent.status"}
 ```
 
 **Response**:
@@ -222,12 +221,11 @@ Get mod_event_agent statistics and health (command `agent.status`). You can also
 {
   "success": true,
   "status": "success",
-  "message": "System status",
+  "message": "Module status",
   "timestamp": 1733433600000000,
   "node_id": "fs-node-01",
   "data": {
     "version": "2.0.0",
-    "log_level": "info",
     "stats": {
       "requests_received": 5432,
       "requests_success": 5400,
@@ -237,7 +235,7 @@ Get mod_event_agent statistics and health (command `agent.status`). You can also
 }
 ```
 
-If the level changes successfully the response also contains `"log_level_updated": true` inside `data` so clients can confirm the new verbosity is active.
+> If a payload still includes `log_level`, the command now returns an error explaining that module-specific verbosity controls were removed.
 
 ---
 

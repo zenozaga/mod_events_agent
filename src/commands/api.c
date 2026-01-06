@@ -6,9 +6,11 @@ static command_result_t handle_api_generic(const command_request_t *request) {
     const cJSON *args_item = cJSON_GetObjectItem(request->payload, "args");
     const char *args = (args_item && cJSON_IsString(args_item)) ? args_item->valuestring : NULL;
 
-    EVENT_LOG_DEBUG("Generic API → %s %s",
-                    request->command,
-                    args ? args : "(no args)");
+    switch_log_printf(SWITCH_CHANNEL_LOG,
+                      SWITCH_LOG_DEBUG,
+                      "[mod_event_agent] Generic API → %s %s",
+                      request->command,
+                      args ? args : "(no args)");
 
     switch_stream_handle_t stream = {0};
     SWITCH_STANDARD_STREAM(stream);

@@ -46,8 +46,7 @@ WITH_REDIS ?= 0
 
 # Source files
 SOURCES = src/mod_event_agent.c \
-          src/core/config.c \
-          src/core/logger.c \
+		  src/core/config.c \
           src/events/adapter.c \
           src/events/serializer.c \
           src/dialplan/manager.c \

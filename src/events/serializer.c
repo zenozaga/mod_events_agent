@@ -14,7 +14,7 @@ char *serialize_event_to_json(switch_event_t *event, const char *node_id)
 
     json_event = cJSON_CreateObject();
     if (!json_event) {
-        EVENT_LOG_ERROR("Failed to create JSON object");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[mod_event_agent] Failed to create JSON object");
         return NULL;
     }
 

@@ -14,7 +14,6 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
     globals.node_id = switch_core_sprintf(pool, "fs-node-%s", switch_core_get_switchname());
     slugify_node_id(globals.node_id);
     globals.publish_all_events = SWITCH_TRUE;
-    globals.log_level = SWITCH_LOG_INFO;
     globals.include_events = NULL;
     globals.exclude_events = NULL;
     globals.include_count = 0;
@@ -23,12 +22,12 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
     switch_core_hash_insert(globals.config, "url", "nats://127.0.0.1:4222");
 
     if (!(xml = switch_xml_open_cfg("event_agent.conf", &cfg, NULL))) {
-        EVENT_LOG_WARNING("Failed to open event_agent.conf.xml, using defaults");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "[mod_event_agent] Failed to open event_agent.conf.xml, using defaults");
         return SWITCH_STATUS_SUCCESS;
     }
 
     if (!(settings = switch_xml_child(cfg, "settings"))) {
-        EVENT_LOG_WARNING("No settings section in configuration, using defaults");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "[mod_event_agent] No settings section in configuration, using defaults");
         goto done;
     }
 
@@ -40,15 +39,6 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
 
         if (!strcasecmp(name, "driver")) {
             globals.driver_name = switch_core_strdup(pool, value);
-        }
-        else if (!strcasecmp(name, "log_level") || !strcasecmp(name, "log-level")) {
-            switch_log_level_t lvl = switch_log_str2level(value);
-            if (lvl == SWITCH_LOG_INVALID) {
-                EVENT_LOG_WARNING("Invalid log level '%s', keeping %s", value, switch_log_level2str(globals.log_level));
-            } else {
-                globals.log_level = lvl;
-                EVENT_LOG_INFO("Log level set to %s", switch_log_level2str(globals.log_level));
-            }
         }
         else if (!strcasecmp(name, "url") || !strcasecmp(name, "host")) {
             switch_core_hash_insert(globals.config, "url", switch_core_strdup(pool, value));
@@ -65,7 +55,7 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
         else if (!strcasecmp(name, "node_id")) {
             globals.node_id = switch_core_strdup(pool, value);
             slugify_node_id(globals.node_id);
-            EVENT_LOG_INFO("Node ID slugified to: %s", globals.node_id);
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] Node ID slugified to: %s", globals.node_id);
         }
         else if (!strcasecmp(name, "publish_all_events")) {
             globals.publish_all_events = switch_true(value);
@@ -79,7 +69,7 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
                 memset(include_slots, 0, sizeof(char *) * EVENT_FILTER_CAP);
                 globals.include_events = include_slots;
                 globals.include_count = switch_separate_string(include_copy, ',', include_slots, EVENT_FILTER_CAP);
-                EVENT_LOG_INFO("Configured %u include event filters", globals.include_count);
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] Configured %u include event filters", globals.include_count);
             }
         }
         else if (!strcasecmp(name, "exclude")) {
@@ -91,7 +81,7 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
                 memset(exclude_slots, 0, sizeof(char *) * EVENT_FILTER_CAP);
                 globals.exclude_events = exclude_slots;
                 globals.exclude_count = switch_separate_string(exclude_copy, ',', exclude_slots, EVENT_FILTER_CAP);
-                EVENT_LOG_INFO("Configured %u exclude event filters", globals.exclude_count);
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] Configured %u exclude event filters", globals.exclude_count);
             }
         }
     }
@@ -99,10 +89,11 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
 done:
     switch_xml_free(xml);
     
-    EVENT_LOG_INFO("Configuration loaded - driver: %s, node: %s, log=%s",
-                  globals.driver_name,
-                  globals.node_id,
-                  switch_log_level2str(globals.log_level));
+    switch_log_printf(SWITCH_CHANNEL_LOG,
+                      SWITCH_LOG_INFO,
+                      "[mod_event_agent] Configuration loaded - driver: %s, node: %s",
+                      globals.driver_name,
+                      globals.node_id);
     
     return SWITCH_STATUS_SUCCESS;
 }

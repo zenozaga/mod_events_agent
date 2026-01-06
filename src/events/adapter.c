@@ -68,26 +68,26 @@ void event_callback(switch_event_t *event)
     const char *event_name = NULL;
 
     if (!event) {
-        EVENT_LOG_WARNING("event_callback invoked with NULL event");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "[mod_event_agent] event_callback invoked with NULL event");
         return;
     }
 
     event_name = switch_event_name(event->event_id);
-    EVENT_LOG_DEBUG("event_callback entered (%s)", event_name ? event_name : "unknown");
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "[mod_event_agent] event_callback entered (%s)", event_name ? event_name : "unknown");
 
     if (!globals.running || !globals.driver || !globals.driver->is_connected(globals.driver)) {
-        EVENT_LOG_DEBUG("Skipping event %s: driver not ready", event_name ? event_name : "unknown");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "[mod_event_agent] Skipping event %s: driver not ready", event_name ? event_name : "unknown");
         return;
     }
 
     if (!should_publish_event(event)) {
-        EVENT_LOG_DEBUG("Event %s filtered out (include/exclude rules)", event_name ? event_name : "unknown");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "[mod_event_agent] Event %s filtered out (include/exclude rules)", event_name ? event_name : "unknown");
         return;
     }
 
     subject = build_subject(event);
     if (!subject) {
-        EVENT_LOG_ERROR("Failed to build subject for event %s", event_name ? event_name : "unknown");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[mod_event_agent] Failed to build subject for event %s", event_name ? event_name : "unknown");
         return;
     }
 
@@ -97,56 +97,56 @@ void event_callback(switch_event_t *event)
     
     if (num_subscribers == 0) {
         globals.events_skipped_no_subscribers++;
-        EVENT_LOG_DEBUG("Skipping event %s: no subscribers on %s", event_name ? event_name : "unknown", subject);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "[mod_event_agent] Skipping event %s: no subscribers on %s", event_name ? event_name : "unknown", subject);
         switch_safe_free(subject);
         return;
     }
 
     json_str = serialize_event_to_json(event, globals.node_id);
     if (!json_str) {
-        EVENT_LOG_ERROR("Failed to serialize event %s to JSON", event_name ? event_name : "unknown");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[mod_event_agent] Failed to serialize event %s to JSON", event_name ? event_name : "unknown");
         switch_safe_free(subject);
         return;
     }
 
     size_t payload_len = strlen(json_str);
-    EVENT_LOG_DEBUG("Publishing event %s to %s (%zu bytes)", event_name ? event_name : "unknown", subject, payload_len);
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "[mod_event_agent] Publishing event %s to %s (%zu bytes)", event_name ? event_name : "unknown", subject, payload_len);
 
     status = globals.driver->publish(globals.driver, subject, json_str, payload_len);
     if (status != SWITCH_STATUS_SUCCESS) {
         globals.events_failed++;
-        EVENT_LOG_WARNING("Driver failed to publish event %s to %s", event_name ? event_name : "unknown", subject);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "[mod_event_agent] Driver failed to publish event %s to %s", event_name ? event_name : "unknown", subject);
     } else {
         globals.events_published++;
         globals.bytes_published += payload_len;
-        EVENT_LOG_DEBUG("Event %s published successfully", event_name ? event_name : "unknown");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "[mod_event_agent] Event %s published successfully", event_name ? event_name : "unknown");
     }
 
     free_serialized_event(json_str);
     switch_safe_free(subject);
-    EVENT_LOG_DEBUG("event_callback exit (%s)", event_name ? event_name : "unknown");
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "[mod_event_agent] event_callback exit (%s)", event_name ? event_name : "unknown");
 }
 
 switch_status_t event_adapter_init(void)
 {
-    EVENT_LOG_INFO("Initializing event adapter");
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] Initializing event adapter");
 
     if (switch_event_bind("mod_event_agent", SWITCH_EVENT_ALL, SWITCH_EVENT_SUBCLASS_ANY,
                          event_callback, NULL) != SWITCH_STATUS_SUCCESS) {
-        EVENT_LOG_ERROR("Failed to bind to FreeSWITCH events");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[mod_event_agent] Failed to bind to FreeSWITCH events");
         return SWITCH_STATUS_FALSE;
     }
 
-    EVENT_LOG_INFO("Successfully bound to FreeSWITCH events");
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] Successfully bound to FreeSWITCH events");
     return SWITCH_STATUS_SUCCESS;
 }
 
 switch_status_t event_adapter_shutdown(void)
 {
-    EVENT_LOG_INFO("Shutting down event adapter");
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] Shutting down event adapter");
     
     switch_event_unbind_callback(event_callback);
     
-    EVENT_LOG_INFO("Event adapter shutdown complete");
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] Event adapter shutdown complete");
     return SWITCH_STATUS_SUCCESS;
 }

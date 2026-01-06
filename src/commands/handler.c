@@ -64,7 +64,7 @@ switch_status_t command_register_handler(const char *name, command_handler_fn ha
     }
 
     switch_core_hash_insert(g_registry, name, handler);
-    EVENT_LOG_INFO("Registered command handler: %s", name);
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] Registered command handler: %s", name);
     return SWITCH_STATUS_SUCCESS;
 }
 
@@ -77,7 +77,7 @@ static void dispatch_command(const char *subject, const char *data, size_t len, 
 
     cJSON *json = cJSON_Parse(data);
     if (!json) {
-        EVENT_LOG_WARNING("Invalid JSON payload on subject %s", subject ? subject : "<unknown>");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "[mod_event_agent] Invalid JSON payload on subject %s", subject ? subject : "<unknown>");
         command_stats_increment_failed();
         publish_response(reply_to, SWITCH_FALSE, "Invalid JSON payload", NULL);
         return;
@@ -130,7 +130,7 @@ static void dispatch_command(const char *subject, const char *data, size_t len, 
         command_stats_increment_success();
     } else {
         command_stats_increment_failed();
-        EVENT_LOG_ERROR("Command %s failed: %s", command_name, result.error);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[mod_event_agent] Command %s failed: %s", command_name, result.error);
     }
 
     if (!async) {
@@ -149,37 +149,37 @@ static void dispatch_command(const char *subject, const char *data, size_t len, 
 }
 
 switch_status_t command_handler_init(event_driver_t *driver, switch_memory_pool_t *pool, dialplan_manager_t *dialplan_manager) {
-    EVENT_LOG_INFO("Initializing command handler");
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] Initializing command handler");
 
     g_driver = driver;
 
     (void)pool;
 
     if (switch_core_hash_init(&g_registry) != SWITCH_STATUS_SUCCESS) {
-        EVENT_LOG_ERROR("Failed to allocate command registry");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[mod_event_agent] Failed to allocate command registry");
         return SWITCH_STATUS_FALSE;
     }
 
     if (command_api_register() != SWITCH_STATUS_SUCCESS) {
-        EVENT_LOG_ERROR("Failed to register default API handler");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[mod_event_agent] Failed to register default API handler");
         return SWITCH_STATUS_FALSE;
     }
     if (command_call_register() != SWITCH_STATUS_SUCCESS) {
-        EVENT_LOG_ERROR("Failed to register call commands");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[mod_event_agent] Failed to register call commands");
         return SWITCH_STATUS_FALSE;
     }
     if (command_status_register() != SWITCH_STATUS_SUCCESS) {
-        EVENT_LOG_ERROR("Failed to register status command");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[mod_event_agent] Failed to register status command");
         return SWITCH_STATUS_FALSE;
     }
     if (dialplan_manager && command_dialplan_init(dialplan_manager) != SWITCH_STATUS_SUCCESS) {
-        EVENT_LOG_WARNING("Dialplan commands could not be registered (continuing)");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "[mod_event_agent] Dialplan commands could not be registered (continuing)");
     }
 
     const char *prefix = commands_prefix();
     switch_snprintf(g_subject_api, sizeof(g_subject_api), "%s.api", prefix);
     if (driver->subscribe(driver, g_subject_api, dispatch_command, NULL) != SWITCH_STATUS_SUCCESS) {
-        EVENT_LOG_ERROR("Failed to subscribe to %s", g_subject_api);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[mod_event_agent] Failed to subscribe to %s", g_subject_api);
         return SWITCH_STATUS_FALSE;
     }
 
@@ -189,19 +189,22 @@ switch_status_t command_handler_init(event_driver_t *driver, switch_memory_pool_
         if (driver->subscribe(driver, g_subject_node, dispatch_command, NULL) == SWITCH_STATUS_SUCCESS) {
             g_node_subscription = SWITCH_TRUE;
         } else {
-            EVENT_LOG_WARNING("Failed to subscribe to %s", g_subject_node);
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "[mod_event_agent] Failed to subscribe to %s", g_subject_node);
             g_subject_node[0] = '\0';
         }
     }
 
-    EVENT_LOG_INFO("Command handler ready on %s (broadcast)%s", g_subject_api,
-                   g_node_subscription ? " + direct node channel" : "");
+    switch_log_printf(SWITCH_CHANNEL_LOG,
+                      SWITCH_LOG_INFO,
+                      "[mod_event_agent] Command handler ready on %s (broadcast)%s",
+                      g_subject_api,
+                      g_node_subscription ? " + direct node channel" : "");
 
     return SWITCH_STATUS_SUCCESS;
 }
 
 void command_handler_shutdown(void) {
-    EVENT_LOG_INFO("Shutting down command handler");
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] Shutting down command handler");
 
     if (g_driver) {
         if (*g_subject_api) {
@@ -221,7 +224,7 @@ void command_handler_shutdown(void) {
 
     command_dialplan_shutdown();
 
-    EVENT_LOG_INFO("Command handler shutdown complete");
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] Command handler shutdown complete");
 }
 
 void command_handler_get_stats(uint64_t *requests, uint64_t *success, uint64_t *failed) {

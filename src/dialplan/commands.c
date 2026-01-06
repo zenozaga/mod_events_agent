@@ -206,7 +206,7 @@ static command_result_t dialplan_status(const command_request_t *request) {
 
 switch_status_t command_dialplan_init(dialplan_manager_t *manager) {
     if (!manager) {
-        EVENT_LOG_WARNING("Dialplan manager unavailable; dialplan commands disabled");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "[mod_event_agent] Dialplan manager unavailable; dialplan commands disabled");
         return SWITCH_STATUS_FALSE;
     }
 
@@ -228,7 +228,7 @@ switch_status_t command_dialplan_init(dialplan_manager_t *manager) {
         return SWITCH_STATUS_FALSE;
     }
 
-    EVENT_LOG_INFO("Dialplan commands registered (enable/disable/audio/autoanswer/status)");
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] Dialplan commands registered (enable/disable/audio/autoanswer/status)");
     return SWITCH_STATUS_SUCCESS;
 }
 

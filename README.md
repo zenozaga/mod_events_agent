@@ -319,7 +319,6 @@ Edit `/etc/freeswitch/autoload_configs/event_agent.conf.xml`:
     <param name="url" value="nats://localhost:4222"/>
     <param name="subject_prefix" value="freeswitch"/>
     <param name="node-id" value="fs-node-01"/>
-    <param name="log-level" value="info"/>
     
     <!-- Event filtering -->
     <param name="include-events" value="CHANNEL_CREATE,CHANNEL_ANSWER,CHANNEL_HANGUP"/>
@@ -328,16 +327,7 @@ Edit `/etc/freeswitch/autoload_configs/event_agent.conf.xml`:
 </configuration>
 ```
 
-#### Runtime Log Level Control
-
-Set the default verbosity via the `log-level` parameter above (accepted values: `debug`, `info`, `notice`, `warning`, `err`, `crit`, `alert`, `emerg`). You can also change it on the fly without touching the filesystem:
-
-```bash
-nats req freeswitch.api '{"command":"agent.status","log_level":"debug"}'
-```
-
-The reply always includes the current level under `data.log_level`. When a change is applied you will also see `data.log_level_updated: true`, making it easy to confirm that the new verbosity is active across the cluster.
-
+> **Logging note:** `mod_event_agent` now writes straight through `switch_log_printf`, so you should manage verbosity using the regular FreeSWITCH logging commands (for example `fs_cli -x "log debug"`).
 
 ### 4. Load Module
 
@@ -386,9 +376,8 @@ mod_events_agent/
 │   ├── mod_event_agent.c          # Module entry point
 │   ├── mod_event_agent.h          # Main header
 │   │
-│   ├── core/                      # Configuration & logging
-│   │   ├── config.c               # XML config parser
-│   │   └── logger.c               # Logging utilities
+│   ├── core/                      # Configuration helpers
+│   │   └── config.c               # XML config parser
 │   │
 │   ├── events/                    # Event streaming
 │   │   ├── adapter.c              # Event subscription & publishing
@@ -438,7 +427,7 @@ mod_events_agent/
 |---------|-------------|-------|
 | `originate` | Create outbound call with endpoint/extension/context fields | ✅ Yes |
 | `hangup` | Terminate a UUID with optional `cause` | ✅ Yes |
-| `agent.status` | Module stats + runtime log-level updates | ✅ Yes |
+| `agent.status` | Module stats (version + metrics) | ✅ Yes |
 | `dialplan.enable` | Enable park mode | ✅ Yes |
 | `dialplan.disable` | Disable park mode | ✅ Yes |
 | `dialplan.audio` | Configure park audio (`mode`, optional `music_class`) | ✅ Yes |
@@ -651,7 +640,6 @@ mod_event_agent/
 │   ├── event_adapter.c         # FreeSWITCH event adapter
 │   ├── event_agent_config.c    # XML configuration loader
 │   ├── serialization.c         # JSON encoding/decoding
-│   ├── logger.c                # Logging system
 │   ├── driver_interface.h      # Abstract driver interface
 │   └── drivers/
 │       ├── driver_nats.c       # NATS driver (complete)
