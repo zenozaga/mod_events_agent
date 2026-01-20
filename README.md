@@ -352,22 +352,6 @@ node server.js
 # Open http://localhost:3000
 ```
 
-### 6. Build Docker Images (optional)
-
-Need prebuilt containers with the module already compiled and FreeSWITCH ready?
-
-```bash
-# Build mod_event_agent runtime image
-make docker-build
-
-# Build FreeSWITCH + mod_event_agent bundle
-make docker-build-freeswitch
-```
-
-Both Docker targets are self-contained: the builder stages compile `mod_event_agent` from the local sources (including NATS) so CI/CD runners do **not** need to pull a pre-built `mod_events_agent` image or have access to any private registry. This avoids `pull access denied` errors on GitHub Actions while keeping the artifacts identical to the on-prem workflow.
-
----
-
 ## 📁 Project Structure
 
 ```
@@ -478,55 +462,17 @@ Add `"async": true` to any payload when you do not need a reply. The server stil
 - NATS Server (runtime dependency)
 - Bundled NATS C client (already in `lib/` + `include/` — no extra install needed)
 
-### Option 1: Automatic Installation (Recommended)
+### Installation Flow
 
-```bash
-# On host (local development)
-make
-make install
+1. Build the module (use the same commands listed in Quick Start step 2).
+2. Copy `mod_event_agent.so` into `/usr/local/freeswitch/mod/`.
+3. Copy `autoload_configs/mod_event_agent.conf.xml` into `/usr/local/freeswitch/conf/autoload_configs/`.
+4. Add `<load module="mod_event_agent"/>` to `modules.conf.xml` if it is not already present.
+5. Restart FreeSWITCH (`systemctl restart freeswitch` or an equivalent command for your distribution).
 
-# In Docker container
-./install.sh
-```
+> **Container tip:** Run `./install.sh` inside the FreeSWITCH container to automate steps 2 and 3. The script auto-detects container paths and applies the same layout used on bare metal.
 
-The `install.sh` script automatically detects if running in a container and uses the correct paths.
-
-### Option 2: Manual Compilation
-
-```bash
-# 1. Compile module
-make
-
-# 2. Install
-sudo cp mod_event_agent.so /usr/local/freeswitch/mod/
-sudo cp autoload_configs/mod_event_agent.conf.xml /usr/local/freeswitch/conf/autoload_configs/
-
-# 3. Add to modules.conf.xml
-sudo nano /usr/local/freeswitch/conf/autoload_configs/modules.conf.xml
-# Add: <load module="mod_event_agent"/>
-
-# 4. Restart FreeSWITCH
-sudo systemctl restart freeswitch
-```
-
-### Option 3: Docker Development
-
-```bash
-# 1. Start complete environment (FreeSWITCH + NATS)
-make docker-up
-
-# 2. Install module in container
-make docker-shell
-cd /workspace
-./install.sh
-exit
-
-# 3. Restart FreeSWITCH
-make docker-restart
-
-# 4. Check logs
-make docker-logs
-```
+> **Dev stacks:** The `docker-compose.dev.yaml` file provisions FreeSWITCH + NATS for local testing if you prefer a fully containerized workflow.
 
 ---
 
@@ -537,7 +483,7 @@ Edit `/usr/local/freeswitch/conf/autoload_configs/mod_event_agent.conf.xml`:
 ```xml
 <configuration name="mod_event_agent.conf" description="Event Agent Module">
   <settings>
-    <!-- Driver selection: nats, kafka, rabbitmq, redis -->
+    <!-- Driver selection: nats (current implementation) -->
     <param name="driver" value="nats"/>
     
     <!-- Message broker URL -->
@@ -586,9 +532,10 @@ tar xzf nats-server-*.tar.gz
 
 ### Compile Example Clients
 
+Build the helper binaries under `tests/` with the provided Makefile, then run:
+
 ```bash
 cd tests
-make
 
 # service_a client: Sends commands and receives responses
 LD_LIBRARY_PATH=../lib/nats ./bin/service_a_nats '{"command":"status"}'
@@ -626,56 +573,6 @@ See [docs/API.md](docs/API.md) for complete command documentation.
 | **Scalability** | Native (NATS clustering) | Requires proxy/balancer |
 | **Event Streaming** | Native Pub/Sub | Socket connection 1:1 |
 | **Multi-Node** | Yes (node filtering) | Multiple connections |
-
----
-
-## 📁 Project Structure
-
-```
-mod_event_agent/
-├── src/
-│   ├── mod_event_agent.c       # FreeSWITCH module core
-│   ├── mod_event_agent.h       # Public headers
-│   ├── command_handler.c       # API command processing
-│   ├── event_adapter.c         # FreeSWITCH event adapter
-│   ├── event_agent_config.c    # XML configuration loader
-│   ├── serialization.c         # JSON encoding/decoding
-│   ├── driver_interface.h      # Abstract driver interface
-│   └── drivers/
-│       ├── driver_nats.c       # NATS driver (complete)
-│       ├── driver_kafka.c      # Kafka driver (stub)
-│       ├── driver_rabbitmq.c   # RabbitMQ driver (stub)
-│       └── driver_redis.c      # Redis driver (stub)
-│
-├── lib/nats/                   # NATS C Client v3.8.2
-│   ├── libnats.so             # Shared library
-│   └── libnats_static.a       # Static library
-│
-├── tests/                      # Test clients
-│   ├── service_a_nats.c       # Client that sends commands
-│   ├── service_b_nats.c       # Server that processes commands
-│   ├── simple_test.c          # Multi-mode client
-│   └── Makefile               # Test compilation
-│
-├── example/                    # Web interface
-│   ├── server.js              # Node.js HTTP server (native)
-│   ├── package.json           # NATS dependency only
-│   └── public/
-│       └── index.html         # Complete frontend (Vanilla JS)
-│
-├── docs/
-│   ├── API.md                 # 📖 Complete API documentation
-│   └── ROADMAP.md             # 🗺️ Drivers roadmap
-│
-├── autoload_configs/
-│   └── mod_event_agent.conf.xml  # Module configuration
-│
-├── docker-compose.dev.yaml    # Development environment
-├── Dockerfile                 # Module build
-├── Makefile                   # Build system
-├── install.sh                 # Automatic installation script
-└── README.md                  # This file
-```
 
 ---
 
@@ -846,30 +743,6 @@ typedef struct event_driver {
 - **Issues**: https://github.com/zenozaga/mod_events_agent/issues
 - **Documentation**: [docs/](docs/)
 - **Web Interface**: [example/](example/)
-
----
-
-### 5. Multi-Node Clusters
-```
-3 FreeSWITCH nodes with different capabilities
-- node_id filtering (server + client side)
-- Geo-routing (USA-East, USA-West, Europe)
-- Feature-routing (transcoding, recording, etc)
-```
-
-See [API.md](API.md) section "Multi-Node Deployments" for examples.
-
-
-## 📄 License
-
-MIT License
-
-## 🔗 Links
-
-- [Installation Guide](INSTALL.md)
-- [Changelog](CHANGELOG.md)
-- [NATS](https://nats.io)
-- [FreeSWITCH](https://freeswitch.org)
 
 ---
 
