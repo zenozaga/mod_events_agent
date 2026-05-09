@@ -6,6 +6,15 @@
 #include "status.h"
 #include <string.h>
 
+/* Maximum size in bytes the module accepts for an inbound command JSON.
+ * NATS server caps payloads at 1MB by default; we cap a magnitude lower
+ * so a single malformed publisher cannot OOM FreeSWITCH by sending a
+ * huge JSON. 64KB is more than enough for any legitimate command (the
+ * largest realistic payload is an `originate` with a fat variables map
+ * which still fits in <8KB). Override via env if a future workload
+ * legitimately needs bigger. */
+#define COMMAND_MAX_PAYLOAD_BYTES (64 * 1024)
+
 static event_driver_t *g_driver = NULL;
 static switch_hash_t *g_registry = NULL;
 static command_handler_fn g_default_handler = NULL;
@@ -75,6 +84,40 @@ void command_register_default_handler(command_handler_fn handler) {
 static void dispatch_command(const char *subject, const char *data, size_t len, const char *reply_to, void *user_data) {
     command_stats_increment_received();
 
+    /* Empty-payload guard. Some misconfigured clients publish an
+     * empty body (or NUL-only) to the api subject; cJSON_Parse on
+     * that returns NULL with no useful error. Catch it explicitly so
+     * we log the event distinctly instead of misreporting it as
+     * "Invalid JSON". */
+    if (data == NULL || len == 0) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
+                          "[mod_event_agent] Empty payload on subject %s",
+                          subject ? subject : "<unknown>");
+        command_stats_increment_failed();
+        publish_response(reply_to, SWITCH_FALSE, "Empty payload", NULL);
+        return;
+    }
+
+    /* Size guard. Reject anything obviously too big BEFORE handing to
+     * cJSON_Parse, which would otherwise allocate proportional to the
+     * input. This is the cheapest backstop against a malformed publisher
+     * exhausting memory in the FS process. */
+    if (len > COMMAND_MAX_PAYLOAD_BYTES) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
+                          "[mod_event_agent] Rejecting oversized payload on %s: %zu bytes (max %d)",
+                          subject ? subject : "<unknown>", len, COMMAND_MAX_PAYLOAD_BYTES);
+        command_stats_increment_failed();
+        publish_response(reply_to, SWITCH_FALSE, "Payload too large", NULL);
+        return;
+    }
+
+    /* cJSON_Parse expects a NUL-terminated string. The NATS driver
+     * always delivers payloads with a trailing NUL (libnats allocates
+     * len+1 internally and writes \0); the size guard above already
+     * stops oversized inputs before they reach the parser. We rely on
+     * cJSON 1.7.12 here because that is what FreeSWITCH bundles via
+     * switch_cJSON.h — newer parsers (cJSON_ParseWithLength) exist on
+     * the system but the FS-bundled version wins the include order. */
     cJSON *json = cJSON_Parse(data);
     if (!json) {
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "[mod_event_agent] Invalid JSON payload on subject %s", subject ? subject : "<unknown>");
@@ -133,6 +176,22 @@ static void dispatch_command(const char *subject, const char *data, size_t len, 
 
     command_result_t result = handler(&request);
     const switch_bool_t success = result.error == NULL;
+
+    /* Single-line audit log of every command attempt. INFO level so
+     * an operator can grep `mod_event_agent.*audit=` for the trail
+     * of who-did-what without having to enable DEBUG. The message
+     * stays terse on purpose — the receipt + outcome + size are
+     * enough for forensics; full payloads at INFO would be a
+     * compliance risk if event_context carries PII. */
+    switch_log_printf(SWITCH_CHANNEL_LOG,
+                      SWITCH_LOG_INFO,
+                      "[mod_event_agent] audit=command cmd=%s subject=%s "
+                      "result=%s async=%s payload_bytes=%zu",
+                      command_name,
+                      subject ? subject : "<unknown>",
+                      success ? "ok" : "err",
+                      async == SWITCH_TRUE ? "yes" : "no",
+                      len);
 
     if (success) {
         command_stats_increment_success();

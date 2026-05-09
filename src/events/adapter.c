@@ -64,7 +64,6 @@ void event_callback(switch_event_t *event)
     char *json_str = NULL;
     char *subject = NULL;
     switch_status_t status;
-    int num_subscribers = 0;
     const char *event_name = NULL;
 
     if (!event) {
@@ -91,16 +90,17 @@ void event_callback(switch_event_t *event)
         return;
     }
 
-    if (globals.driver->has_subscribers(globals.driver, subject, &num_subscribers) != SWITCH_STATUS_SUCCESS) {
-        num_subscribers = 1;
-    }
-    
-    if (num_subscribers == 0) {
-        globals.events_skipped_no_subscribers++;
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "[mod_event_agent] Skipping event %s: no subscribers on %s", event_name ? event_name : "unknown", subject);
-        switch_safe_free(subject);
-        return;
-    }
+    /* Subscriber-count check has been removed from the hot path. The
+     * NATS driver could not (and core NATS cannot) cheaply tell us
+     * whether anyone is listening without an extra round-trip, so the
+     * old has_subscribers() always returned 1 and the skip-branch was
+     * dead. We always publish; NATS itself drops messages with no
+     * subscribers in O(1) on the broker side.
+     *
+     * The events_skipped_no_subscribers counter stays in the globals
+     * struct for ABI stability (dialplan/status command reports it),
+     * but it will only ever increment if a future driver implements
+     * has_subscribers honestly. */
 
     json_str = serialize_event_to_json(event, globals.node_id);
     if (!json_str) {

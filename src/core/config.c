@@ -1,14 +1,64 @@
 #include "mod_event_agent.h"
+#include <stdlib.h>
+#include <ctype.h>
 
 #define EVENT_FILTER_CAP 128
+
+/* Centralised env-var names. Secrets (token, nkey seed) live in env so a
+ * leaked event_agent.conf.xml never carries credentials. The code prefers
+ * env over XML when both are set; XML stays a fallback for non-secret
+ * fields (url, prefix, node id, event filters). */
+#define ENV_TOKEN     "MOD_EVENT_AGENT_TOKEN"
+#define ENV_NKEY_SEED "MOD_EVENT_AGENT_NKEY_SEED"
+#define ENV_URL       "MOD_EVENT_AGENT_URL"
+#define ENV_NODE_ID   "MOD_EVENT_AGENT_NODE_ID"
+
+/* Bound on the subject_prefix to keep generated NATS subjects short
+ * and predictable. Real prefixes are 1-2 segments ("freeswitch",
+ * "fs.prod"); the cap exists to stop a misconfigured (or hostile)
+ * config from producing 4 KB subjects. */
+#define SUBJECT_PREFIX_MAX 64
+
+/* Helper: read env var and copy into the module pool when non-empty. */
+static const char *env_strdup(switch_memory_pool_t *pool, const char *name)
+{
+    const char *raw = getenv(name);
+    if (zstr(raw)) {
+        return NULL;
+    }
+    return switch_core_strdup(pool, raw);
+}
+
+/* sanitise_subject_prefix scrubs anything that could break the NATS
+ * wire protocol (\r, \n, spaces, NULs implied) or that NATS itself
+ * would reject as a subject token. The protocol uses CRLF as line
+ * terminator, so an attacker who controls the prefix could otherwise
+ * splice arbitrary commands into the connection by setting prefix to
+ * "evil\r\nPUB target 0\r\n". We over-strip to be safe: only the
+ * canonical NATS subject token charset survives (alnum, '_', '-',
+ * '.'). Anything else is replaced with '_' in place. */
+static void sanitise_subject_prefix(char *prefix)
+{
+    if (!prefix) return;
+    for (char *p = prefix; *p; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (!(isalnum(c) || c == '_' || c == '-' || c == '.')) {
+            *p = '_';
+        }
+    }
+}
 
 switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
 {
     switch_xml_t cfg, xml, settings, param;
     const char *name, *value;
+    const char *env_token = NULL;
+    const char *env_nkey = NULL;
+    const char *env_url = NULL;
+    const char *env_node = NULL;
 
     switch_core_hash_init(&globals.config);
-    
+
     globals.driver_name = "nats";
     globals.subject_prefix = switch_core_strdup(pool, DEFAULT_SUBJECT_PREFIX);
     globals.node_id = switch_core_sprintf(pool, "fs-node-%s", switch_core_get_switchname());
@@ -20,6 +70,33 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
     globals.exclude_count = 0;
 
     switch_core_hash_insert(globals.config, "url", "nats://127.0.0.1:4222");
+
+    /* Read env vars upfront. They take precedence over event_agent.conf.xml.
+     * Secrets (token, nkey seed) SHOULD only come from env so a checked-in
+     * config file never carries credentials. The XML branches preserve
+     * backwards compatibility for development setups. */
+    env_token = env_strdup(pool, ENV_TOKEN);
+    env_nkey  = env_strdup(pool, ENV_NKEY_SEED);
+    env_url   = env_strdup(pool, ENV_URL);
+    env_node  = env_strdup(pool, ENV_NODE_ID);
+
+    if (env_url) {
+        switch_core_hash_insert(globals.config, "url", (char *)env_url);
+    }
+    if (env_node) {
+        globals.node_id = (char *)env_node;
+        slugify_node_id(globals.node_id);
+    }
+    if (env_token) {
+        switch_core_hash_insert(globals.config, "token", (char *)env_token);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
+                          "[mod_event_agent] auth token sourced from env %s", ENV_TOKEN);
+    }
+    if (env_nkey) {
+        switch_core_hash_insert(globals.config, "nkey_seed", (char *)env_nkey);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
+                          "[mod_event_agent] auth nkey sourced from env %s", ENV_NKEY_SEED);
+    }
 
     if (!(xml = switch_xml_open_cfg("event_agent.conf", &cfg, NULL))) {
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "[mod_event_agent] Failed to open event_agent.conf.xml, using defaults");
@@ -41,21 +118,56 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
             globals.driver_name = switch_core_strdup(pool, value);
         }
         else if (!strcasecmp(name, "url") || !strcasecmp(name, "host")) {
-            switch_core_hash_insert(globals.config, "url", switch_core_strdup(pool, value));
+            /* Env var wins. Skip the XML override if MOD_EVENT_AGENT_URL was
+             * set so the deployment surface stays single-sourced. */
+            if (!env_url) {
+                switch_core_hash_insert(globals.config, "url", switch_core_strdup(pool, value));
+            }
         }
         else if (!strcasecmp(name, "token")) {
-            if (!zstr(value)) switch_core_hash_insert(globals.config, "token", switch_core_strdup(pool, value));
+            /* Token must come from env. The XML branch is kept for legacy
+             * configs but emits a loud warning so operators migrate. */
+            if (env_token) {
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
+                                  "[mod_event_agent] ignoring XML token (env %s set)", ENV_TOKEN);
+            } else if (!zstr(value)) {
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
+                                  "[mod_event_agent] DEPRECATED: token in XML config; "
+                                  "move to env %s for production", ENV_TOKEN);
+                switch_core_hash_insert(globals.config, "token", switch_core_strdup(pool, value));
+            }
         }
         else if (!strcasecmp(name, "nkey_seed") || !strcasecmp(name, "nkey")) {
-            if (!zstr(value)) switch_core_hash_insert(globals.config, "nkey_seed", switch_core_strdup(pool, value));
+            if (env_nkey) {
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
+                                  "[mod_event_agent] ignoring XML nkey (env %s set)", ENV_NKEY_SEED);
+            } else if (!zstr(value)) {
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
+                                  "[mod_event_agent] DEPRECATED: nkey in XML config; "
+                                  "move to env %s for production", ENV_NKEY_SEED);
+                switch_core_hash_insert(globals.config, "nkey_seed", switch_core_strdup(pool, value));
+            }
         }
         else if (!strcasecmp(name, "subject_prefix")) {
-            globals.subject_prefix = switch_core_strdup(pool, value);
+            /* Cap length and scrub characters that could splice into
+             * the NATS wire protocol or produce invalid subjects.
+             * Operators legitimately need only "[a-z0-9._-]+". */
+            if (strlen(value) >= SUBJECT_PREFIX_MAX) {
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR,
+                                  "[mod_event_agent] subject_prefix too long (%zu); using default",
+                                  strlen(value));
+            } else {
+                char *clean = switch_core_strdup(pool, value);
+                sanitise_subject_prefix(clean);
+                globals.subject_prefix = clean;
+            }
         }
         else if (!strcasecmp(name, "node_id")) {
-            globals.node_id = switch_core_strdup(pool, value);
-            slugify_node_id(globals.node_id);
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] Node ID slugified to: %s", globals.node_id);
+            if (!env_node) {
+                globals.node_id = switch_core_strdup(pool, value);
+                slugify_node_id(globals.node_id);
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] Node ID slugified to: %s", globals.node_id);
+            }
         }
         else if (!strcasecmp(name, "publish_all_events")) {
             globals.publish_all_events = switch_true(value);

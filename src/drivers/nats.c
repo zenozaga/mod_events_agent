@@ -1,6 +1,16 @@
 #include "interface.h"
 #include <nats/nats.h>
 
+/* Hard ceiling on simultaneous NATS subscriptions held by the driver.
+ * The module legitimately needs only two: the broadcast `<prefix>.api`
+ * lane and the per-node `<prefix>.node.<id>` lane, plus a handful for
+ * a future feature surface. A misbehaving caller (or a bug in the
+ * resubscribe-after-reconnect path) could otherwise spin up
+ * subscriptions until libnats runs out of file descriptors or the
+ * NATS server kicks the connection. The cap surfaces the bug early
+ * with a loud refusal instead of a silent leak. */
+#define NATS_DRIVER_MAX_SUBSCRIPTIONS 32
+
 typedef struct {
     natsConnection *conn;
     natsOptions *opts;
@@ -56,23 +66,30 @@ static switch_status_t nats_init(event_driver_t *driver, switch_hash_t *config) 
     natsStatus s;
     nats_driver_ctx_t *ctx;
     const char *url, *token, *nkey_seed;
-    
+
     ctx = switch_core_alloc(driver->pool, sizeof(nats_driver_ctx_t));
     memset(ctx, 0, sizeof(nats_driver_ctx_t));
     driver->handle = ctx;
-    
+
     switch_core_hash_init(&ctx->subscriptions);
     switch_mutex_init(&ctx->mutex, SWITCH_MUTEX_NESTED, driver->pool);
-    
+
     url = switch_core_hash_find(config, "url");
     if (!url) url = "nats://127.0.0.1:4222";
-    
+
     s = natsOptions_Create(&ctx->opts);
-    if (s != NATS_OK) return SWITCH_STATUS_FALSE;
-    
+    if (s != NATS_OK) {
+        /* The hash was just initialised; tear it down so we do not leak
+         * half-built state if the caller retries init or unloads. */
+        switch_core_hash_destroy(&ctx->subscriptions);
+        return SWITCH_STATUS_FALSE;
+    }
+
     s = natsOptions_SetURL(ctx->opts, url);
     if (s != NATS_OK) {
         natsOptions_Destroy(ctx->opts);
+        ctx->opts = NULL;
+        switch_core_hash_destroy(&ctx->subscriptions);
         return SWITCH_STATUS_FALSE;
     }
     
@@ -162,8 +179,19 @@ static switch_status_t nats_publish(event_driver_t *driver, const char *subject,
     return SWITCH_STATUS_SUCCESS;
 }
 
+/* Core NATS does not expose subscriber count without a server
+ * round-trip; this driver always reports 1 so the caller will publish.
+ * Kept on the driver interface in case a future driver (in-process
+ * registry, JetStream stream info, etc.) implements it honestly. The
+ * event hot-path was previously gating publishes on this returning 0,
+ * which never happened — that branch has been removed so the cost of
+ * this no-op call is gone. */
 static switch_status_t nats_has_subscribers(event_driver_t *driver, const char *subject, int *count) {
-    *count = 1;
+    (void)driver;
+    (void)subject;
+    if (count) {
+        *count = 1;
+    }
     return SWITCH_STATUS_SUCCESS;
 }
 
@@ -171,40 +199,97 @@ static switch_status_t nats_subscribe(event_driver_t *driver, const char *subjec
     nats_driver_ctx_t *ctx = (nats_driver_ctx_t *)driver->handle;
     nats_subscription_t *nsub;
     natsStatus s;
-    
-    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "📨 [NATS] Subscribing to: %s\n", subject);
-    
+
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] NATS subscribing to: %s", subject);
+
+    /* Defensive double-subscribe guard. If the caller subscribes twice
+     * to the same subject (e.g. on a reconnect-and-resubscribe flow
+     * that did not unsubscribe first) we would leak the previous
+     * natsSubscription handle and the previous nsub stays alive
+     * holding a stale callback closure. Reject the duplicate so the
+     * caller has to clean up explicitly.
+     *
+     * The same critical section also enforces NATS_DRIVER_MAX_SUBSCRIPTIONS:
+     * we count the live subscriptions before adding a new one, and
+     * refuse if we are at the cap. This stops a runaway subscribe
+     * loop from exhausting fds / server memory before the operator
+     * notices. */
+    switch_mutex_lock(ctx->mutex);
+    if (switch_core_hash_find(ctx->subscriptions, subject) != NULL) {
+        switch_mutex_unlock(ctx->mutex);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
+                          "[mod_event_agent] NATS already subscribed to %s; refusing to overwrite", subject);
+        return SWITCH_STATUS_FALSE;
+    }
+    /* Walk the hash to count entries. The hash is small (≤ cap) so
+     * an O(n) walk on subscribe is fine and saves us a separate
+     * counter that could drift on partial failure paths. */
+    {
+        switch_hash_index_t *hi;
+        size_t live = 0;
+        for (hi = switch_core_hash_first(ctx->subscriptions); hi; hi = switch_core_hash_next(&hi)) {
+            live++;
+            if (live >= NATS_DRIVER_MAX_SUBSCRIPTIONS) {
+                switch_mutex_unlock(ctx->mutex);
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR,
+                                  "[mod_event_agent] NATS subscription cap reached (%d); refusing %s",
+                                  NATS_DRIVER_MAX_SUBSCRIPTIONS, subject);
+                /* hi may not be NULL when we break; there is no
+                 * documented "free index" call, but the iterator is
+                 * pool-backed and reclaimed on driver teardown, so
+                 * this is safe. */
+                return SWITCH_STATUS_FALSE;
+            }
+        }
+    }
+    switch_mutex_unlock(ctx->mutex);
+
     nsub = switch_core_alloc(driver->pool, sizeof(nats_subscription_t));
     nsub->handler = handler;
     nsub->user_data = user_data;
-    
+
     s = natsConnection_Subscribe(&nsub->sub, ctx->conn, subject, nats_message_cb, nsub);
     if (s != NATS_OK) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "❌ [NATS] Failed to subscribe to %s: %s\n", subject, natsStatus_GetText(s));
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[mod_event_agent] NATS failed to subscribe to %s: %s",
+                          subject, natsStatus_GetText(s));
+        /* nsub itself comes from the FreeSWITCH module pool; the pool
+         * reclaims it on module shutdown. We do not have a per-alloc
+         * free for switch_core_alloc, so we cannot release nsub here.
+         * The trade-off is acceptable because subscribes only happen
+         * at startup / on reconnect, both bounded events. */
         return SWITCH_STATUS_FALSE;
     }
-    
+
     switch_mutex_lock(ctx->mutex);
     switch_core_hash_insert(ctx->subscriptions, subject, nsub);
     switch_mutex_unlock(ctx->mutex);
-    
-    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "✅ [NATS] Subscribed to: %s\n", subject);
-    
+
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] NATS subscribed to: %s", subject);
+
     return SWITCH_STATUS_SUCCESS;
 }
 
 static switch_status_t nats_unsubscribe(event_driver_t *driver, const char *subject) {
     nats_driver_ctx_t *ctx = (nats_driver_ctx_t *)driver->handle;
     nats_subscription_t *nsub;
-    
+
     switch_mutex_lock(ctx->mutex);
     nsub = switch_core_hash_find(ctx->subscriptions, subject);
     if (nsub) {
-        natsSubscription_Destroy(nsub->sub);
         switch_core_hash_delete(ctx->subscriptions, subject);
     }
     switch_mutex_unlock(ctx->mutex);
-    
+
+    /* Destroy the subscription OUTSIDE the mutex. natsSubscription_Destroy
+     * blocks until the message-callback thread drains; holding our own
+     * mutex while it drains would deadlock if the callback ever tries to
+     * acquire the same mutex (none do today, but the invariant is fragile
+     * enough that we prefer not to depend on it). */
+    if (nsub && nsub->sub) {
+        natsSubscription_Destroy(nsub->sub);
+        nsub->sub = NULL;
+    }
+
     return SWITCH_STATUS_SUCCESS;
 }
 

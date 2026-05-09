@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>     /* time() for the unique inbox token */
 #include <nats/nats.h>
 
 #define NATS_URL "nats://127.0.0.1:5800"
