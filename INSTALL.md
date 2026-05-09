@@ -136,7 +136,7 @@ following variables override (or replace) values in
 
 | Env var | Purpose | XML fallback (deprecated) |
 |---------|---------|---------------------------|
-| `MOD_EVENT_AGENT_URL` | NATS broker URL (e.g. `nats://nats:4222`) | `<param name="url">` |
+| `MOD_EVENT_AGENT_URL` | NATS broker URL — single, or comma-separated list for cluster failover | `<param name="url">` |
 | `MOD_EVENT_AGENT_TOKEN` | NATS auth token (recommended on any non-localhost broker) | `<param name="token">` |
 | `MOD_EVENT_AGENT_NKEY_SEED` | NATS NKey seed (alternative to token) | `<param name="nkey_seed">` |
 | `MOD_EVENT_AGENT_NODE_ID` | Unique identifier of this FS node | `<param name="node_id">` |
@@ -145,6 +145,27 @@ If a variable AND its XML counterpart are both set, the env wins and
 the XML value emits a `DEPRECATED` warning at module load time. Tokens
 and NKey seeds in the XML log a louder warning telling the operator
 to migrate.
+
+#### Cluster failover via multi-URL
+
+The driver detects a comma in `MOD_EVENT_AGENT_URL` and switches from
+`natsOptions_SetURL` to `natsOptions_SetServers`. libnats then handles
+connect-and-failover across the URL list automatically — no extra
+client logic needed.
+
+```bash
+# Single broker (most common)
+MOD_EVENT_AGENT_URL=nats://nats:4222
+
+# 3-node NATS cluster — the client tries each in order
+MOD_EVENT_AGENT_URL=nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222
+```
+
+- Up to 16 URLs accepted (`NATS_DRIVER_MAX_SERVERS` in
+  `src/drivers/nats.c`).
+- Whitespace around commas is trimmed.
+- Confirmation log at INFO on startup:
+  `[mod_event_agent] NATS configured with N servers (cluster failover)`.
 
 ---
 
