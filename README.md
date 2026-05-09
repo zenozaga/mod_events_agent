@@ -317,7 +317,7 @@ when populated.
 |-------|--------------|
 | **Payload size cap** | Rejects any inbound JSON over 64 KB before parsing — backstop against an OOM-by-publish attack. |
 | **Empty payload guard** | A NULL or zero-byte body is rejected with a distinct message instead of being mis-classified as bad JSON. |
-| **API command denylist** | The generic-API fallback refuses `shutdown`, `fsctl`, `load`, `unload`, `reload`, `reloadxml`, `reloadacl`, `bgapi`, `bg_system`, `system`, `lua`, `luarun`, and `msleep`. |
+| **Optional API denylist** | The generic-API fallback supports an opt-in denylist (`MOD_EVENT_AGENT_API_DENYLIST="cmd1,cmd2,..."` or the matching XML `<param name="api_denylist">`). **Default is empty** — the module forwards every API verb to FreeSWITCH, behaving as a transparent ESL-over-NATS bridge. The list is a defense-in-depth knob for sandbox / compliance deployments; primary authorization belongs at the NATS layer (token, NKey, subject ACL, JWT claims), not here. |
 | **Subject-prefix sanitisation** | The configurable `subject_prefix` is capped at 64 chars and any character outside `[a-zA-Z0-9._-]` is replaced with `_` — eliminates a CR/LF wire-protocol injection surface from a hostile config. |
 | **Subscription cap** | The driver refuses to register more than 32 simultaneous subscriptions (the module legitimately needs ≤ 2). |
 
@@ -389,7 +389,7 @@ mod_events_agent/
 │   ├── commands/
 │   │   ├── handler.c              # Command dispatcher (size cap, audit log)
 │   │   ├── core.c                 # Request envelope helpers
-│   │   ├── api.c                  # Generic API execution + denylist
+│   │   ├── api.c                  # Generic API execution + optional denylist
 │   │   ├── call.c                 # Originate / hangup
 │   │   └── status.c               # agent.status
 │   ├── validation/
@@ -405,7 +405,7 @@ mod_events_agent/
 │   └── src/
 │       ├── show_modules_test.c    # Legacy quick-check
 │       ├── test_size_limit.c      # Verifies the 64KB cap
-│       ├── test_denylist.c        # 13 denied verbs + 3 allowed
+│       ├── test_denylist.c        # Opt-in denylist: SKIP unless env set, else asserts denial
 │       └── test_validation.c      # 11 invalid-payload cases
 │
 ├── docs/
@@ -728,7 +728,7 @@ The four test binaries:
 | Binary | Asserts |
 |--------|---------|
 | `test_size_limit`  | The 64KB payload cap rejects oversized requests with the `Payload too large` message. |
-| `test_denylist`    | All 13 denied API verbs are blocked AND `uptime`/`version`/`status` still go through. |
+| `test_denylist`    | If `MOD_EVENT_AGENT_API_DENYLIST` is set, every verb in it is blocked with the canonical message. If unset, the test SKIPs after sanity-checking that `uptime`/`version`/`status` still go through (transparent-bridge mode). |
 | `test_validation`  | 11 invalid-payload cases (parse errors, missing fields, wrong types, enum violations) each return the expected error. |
 | `show_modules_test`| Legacy quick-check; sends `show modules` and prints the response. |
 
@@ -736,7 +736,7 @@ Last verified run against `freeswitch-events-agent` Docker image:
 
 ```
 test_size_limit  : ALL PASS  (3/3 cases)
-test_denylist    : ALL PASS  (16/16 cases)
+test_denylist    : SKIP (transparent-bridge mode)  ─ or  ALL PASS (N/N denied verbs) when env set
 test_validation  : ALL PASS  (11/11 cases)
 ```
 

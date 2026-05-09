@@ -140,6 +140,7 @@ following variables override (or replace) values in
 | `MOD_EVENT_AGENT_TOKEN` | NATS auth token (recommended on any non-localhost broker) | `<param name="token">` |
 | `MOD_EVENT_AGENT_NKEY_SEED` | NATS NKey seed (alternative to token) | `<param name="nkey_seed">` |
 | `MOD_EVENT_AGENT_NODE_ID` | Unique identifier of this FS node | `<param name="node_id">` |
+| `MOD_EVENT_AGENT_API_DENYLIST` | Optional, comma-separated. Verbs the generic-API fallback must reject. Empty by default — module forwards everything (transparent ESL-over-NATS bridge). | `<param name="api_denylist">` |
 
 If a variable AND its XML counterpart are both set, the env wins and
 the XML value emits a `DEPRECATED` warning at module load time. Tokens
@@ -200,13 +201,6 @@ Expected payload:
 
 ### 3. The hardening guards are alive
 
-The denylist must reject `shutdown`:
-
-```bash
-nats --server $MOD_EVENT_AGENT_URL req freeswitch.api '{"command":"shutdown"}' --timeout 3s
-# expected: { "success": false, "message": "Command is not permitted via the event bus" }
-```
-
 The validator must reject malformed payloads:
 
 ```bash
@@ -214,5 +208,39 @@ nats --server $MOD_EVENT_AGENT_URL req freeswitch.api 'not json' --timeout 3s
 # expected: { "success": false, "message": "Invalid JSON payload" }
 ```
 
+The size cap must reject oversized payloads (the cap is 64 KB):
+
+```bash
+# fabricate a >64KB blob
+python -c 'print("{\"command\":\"x\",\"args\":\"" + "A"*70000 + "\"}")' \
+  | nats --server $MOD_EVENT_AGENT_URL req freeswitch.api --timeout 3s
+# expected: { "success": false, "message": "Payload too large" }
+```
+
+#### Optional: API denylist (opt-in)
+
+By default the module forwards every API verb to FreeSWITCH —
+`mod_event_agent` is a transparent ESL-over-NATS bridge and
+authorization belongs at the broker (NATS token / NKey / subject ACL).
+
+If your deployment needs a guardrail at the module layer (sandbox,
+compliance, dev), set `MOD_EVENT_AGENT_API_DENYLIST` with a
+comma-separated list of verbs to refuse:
+
+```bash
+MOD_EVENT_AGENT_API_DENYLIST="shutdown,fsctl,system,lua,luarun"
+```
+
+Verify the list is active:
+
+```bash
+nats --server $MOD_EVENT_AGENT_URL req freeswitch.api '{"command":"shutdown"}' --timeout 3s
+# expected when "shutdown" is on the list:
+#   { "success": false, "message": "Command is not permitted via the event bus" }
+# expected when the env is unset (default):
+#   { "success": true, ... }   ← FS will probably hang up the engine, do NOT run on prod!
+```
+
 A broader matrix lives at `tests/run.sh` if you want to verify
-size limits, validation rules, and the full denylist programmatically.
+size limits, validation rules, and the denylist (when configured)
+programmatically.

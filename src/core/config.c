@@ -1,5 +1,6 @@
 #include "mod_event_agent.h"
 #include <stdlib.h>
+#include <string.h>
 #include <ctype.h>
 
 #define EVENT_FILTER_CAP 128
@@ -8,10 +9,17 @@
  * leaked event_agent.conf.xml never carries credentials. The code prefers
  * env over XML when both are set; XML stays a fallback for non-secret
  * fields (url, prefix, node id, event filters). */
-#define ENV_TOKEN     "MOD_EVENT_AGENT_TOKEN"
-#define ENV_NKEY_SEED "MOD_EVENT_AGENT_NKEY_SEED"
-#define ENV_URL       "MOD_EVENT_AGENT_URL"
-#define ENV_NODE_ID   "MOD_EVENT_AGENT_NODE_ID"
+#define ENV_TOKEN        "MOD_EVENT_AGENT_TOKEN"
+#define ENV_NKEY_SEED    "MOD_EVENT_AGENT_NKEY_SEED"
+#define ENV_URL          "MOD_EVENT_AGENT_URL"
+#define ENV_NODE_ID      "MOD_EVENT_AGENT_NODE_ID"
+#define ENV_API_DENYLIST "MOD_EVENT_AGENT_API_DENYLIST"
+
+/* Bound on how many API verbs the denylist can carry. The list is a
+ * sandbox guardrail, not a permission system — anyone who needs more
+ * than 64 entries should be using NATS subject ACLs / JWT claims, not
+ * a comma-separated string in a config file. */
+#define API_DENYLIST_MAX 64
 
 /* Bound on the subject_prefix to keep generated NATS subjects short
  * and predictable. Real prefixes are 1-2 segments ("freeswitch",
@@ -27,6 +35,48 @@ static const char *env_strdup(switch_memory_pool_t *pool, const char *name)
         return NULL;
     }
     return switch_core_strdup(pool, raw);
+}
+
+/* parse_api_denylist splits a comma-separated value into globals.api_denylist.
+ * Empty / whitespace-only entries are dropped. Each surviving token is
+ * trimmed and stored in pool memory so the slot array survives config
+ * reloads. The slot count is capped at API_DENYLIST_MAX to bound the
+ * O(N) lookup at runtime. */
+static void parse_api_denylist(switch_memory_pool_t *pool, const char *value)
+{
+    if (zstr(value)) {
+        globals.api_denylist = NULL;
+        globals.api_denylist_count = 0;
+        return;
+    }
+
+    char *copy = switch_core_strdup(pool, value);
+    char **slots = switch_core_alloc(pool, sizeof(char *) * API_DENYLIST_MAX);
+    memset(slots, 0, sizeof(char *) * API_DENYLIST_MAX);
+
+    int raw = switch_separate_string(copy, ',', slots, API_DENYLIST_MAX);
+
+    /* Compact: trim whitespace and drop empties. We do this in-place
+     * so callers can iterate slots[0..count-1] without checking for
+     * NULL/blank entries. */
+    uint32_t kept = 0;
+    for (int i = 0; i < raw; i++) {
+        char *tok = slots[i];
+        if (!tok) continue;
+        while (*tok && isspace((unsigned char)*tok)) tok++;
+        char *end = tok + strlen(tok);
+        while (end > tok && isspace((unsigned char)*(end - 1))) end--;
+        *end = '\0';
+        if (*tok) {
+            slots[kept++] = tok;
+        }
+    }
+    for (uint32_t i = kept; i < API_DENYLIST_MAX; i++) {
+        slots[i] = NULL;
+    }
+
+    globals.api_denylist = slots;
+    globals.api_denylist_count = kept;
 }
 
 /* sanitise_subject_prefix scrubs anything that could break the NATS
@@ -56,6 +106,7 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
     const char *env_nkey = NULL;
     const char *env_url = NULL;
     const char *env_node = NULL;
+    const char *env_denylist = NULL;
 
     switch_core_hash_init(&globals.config);
 
@@ -68,6 +119,13 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
     globals.exclude_events = NULL;
     globals.include_count = 0;
     globals.exclude_count = 0;
+    /* Default to an empty denylist: the module forwards every API
+     * verb to switch_api_execute(). Authorization is the broker's
+     * responsibility (NATS token / NKey / subject ACLs); this list
+     * is a defense-in-depth knob for deployments that want to pin
+     * specific verbs at the module layer. */
+    globals.api_denylist = NULL;
+    globals.api_denylist_count = 0;
 
     switch_core_hash_insert(globals.config, "url", "nats://127.0.0.1:4222");
 
@@ -75,10 +133,11 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
      * Secrets (token, nkey seed) SHOULD only come from env so a checked-in
      * config file never carries credentials. The XML branches preserve
      * backwards compatibility for development setups. */
-    env_token = env_strdup(pool, ENV_TOKEN);
-    env_nkey  = env_strdup(pool, ENV_NKEY_SEED);
-    env_url   = env_strdup(pool, ENV_URL);
-    env_node  = env_strdup(pool, ENV_NODE_ID);
+    env_token    = env_strdup(pool, ENV_TOKEN);
+    env_nkey     = env_strdup(pool, ENV_NKEY_SEED);
+    env_url      = env_strdup(pool, ENV_URL);
+    env_node     = env_strdup(pool, ENV_NODE_ID);
+    env_denylist = env_strdup(pool, ENV_API_DENYLIST);
 
     if (env_url) {
         switch_core_hash_insert(globals.config, "url", (char *)env_url);
@@ -96,6 +155,12 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
         switch_core_hash_insert(globals.config, "nkey_seed", (char *)env_nkey);
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
                           "[mod_event_agent] auth nkey sourced from env %s", ENV_NKEY_SEED);
+    }
+    if (env_denylist) {
+        parse_api_denylist(pool, env_denylist);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
+                          "[mod_event_agent] api denylist sourced from env %s (%u entries)",
+                          ENV_API_DENYLIST, globals.api_denylist_count);
     }
 
     if (!(xml = switch_xml_open_cfg("event_agent.conf", &cfg, NULL))) {
@@ -182,6 +247,21 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
                 globals.include_events = include_slots;
                 globals.include_count = switch_separate_string(include_copy, ',', include_slots, EVENT_FILTER_CAP);
                 switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "[mod_event_agent] Configured %u include event filters", globals.include_count);
+            }
+        }
+        else if (!strcasecmp(name, "api_denylist")) {
+            /* XML branch is the fallback path. Env (if set) already
+             * populated the slot; we leave it untouched so deployment
+             * surface stays single-sourced. */
+            if (env_denylist) {
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
+                                  "[mod_event_agent] ignoring XML api_denylist (env %s set)",
+                                  ENV_API_DENYLIST);
+            } else {
+                parse_api_denylist(pool, value);
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
+                                  "[mod_event_agent] api denylist sourced from XML (%u entries)",
+                                  globals.api_denylist_count);
             }
         }
         else if (!strcasecmp(name, "exclude")) {

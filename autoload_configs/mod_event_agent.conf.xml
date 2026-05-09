@@ -9,10 +9,19 @@
   prefix, node id, event filters) and as an emergency fallback.
 
   Environment variables (env wins over XML when both are set):
-    MOD_EVENT_AGENT_TOKEN     — NATS auth token (recommended)
-    MOD_EVENT_AGENT_NKEY_SEED — NATS NKey seed (alternative to token)
-    MOD_EVENT_AGENT_URL       — NATS broker URL
-    MOD_EVENT_AGENT_NODE_ID   — Unique identifier of this FS node
+    MOD_EVENT_AGENT_TOKEN         — NATS auth token (recommended)
+    MOD_EVENT_AGENT_NKEY_SEED     — NATS NKey seed (alternative to token)
+    MOD_EVENT_AGENT_URL           — NATS broker URL
+    MOD_EVENT_AGENT_NODE_ID       — Unique identifier of this FS node
+    MOD_EVENT_AGENT_API_DENYLIST  — Optional comma-separated list of
+                                    API verbs the module must reject
+                                    at the generic-API fallback. Empty
+                                    by default — the module behaves
+                                    as a transparent ESL-over-NATS
+                                    bridge. Authorization belongs at
+                                    the broker (NATS token / NKey /
+                                    subject ACL); use this only as a
+                                    defense-in-depth knob.
 
   See INSTALL.md for the full operator guide.
 -->
@@ -56,6 +65,16 @@
          (`<prefix>.node.<id>` for direct addressing) and for tagging
          every event payload. Override via MOD_EVENT_AGENT_NODE_ID. -->
     <param name="node_id" value="$${agent_node_id}"/>
+
+    <!-- Optional API denylist. Comma-separated list of verbs the
+         module rejects at the generic-API fallback. Default is
+         EMPTY — the module forwards every API call to FreeSWITCH,
+         exactly like ESL would. Populate this only as a guardrail
+         for sandbox / compliance setups. Authorization (who can
+         publish what) belongs at the NATS layer (token, NKey,
+         subject ACL, JWT claims), not here. Env var
+         MOD_EVENT_AGENT_API_DENYLIST overrides this XML param. -->
+    <param name="api_denylist" value=""/>
 
   </settings>
 </configuration>

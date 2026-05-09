@@ -1,48 +1,39 @@
 #include "api.h"
 #include "core.h"
+#include "../mod_event_agent.h"
 #include <string.h>
 
-/* Denylist of FreeSWITCH API commands that are too dangerous to expose
- * over the message bus. This is a defense-in-depth layer on top of
- * NATS auth: even if a token is compromised or the broker is reachable
- * from somewhere unexpected, these specific commands cannot be issued
- * through the generic API fallback.
+/* Generic-API fallback for verbs the module does not register a typed
+ * handler for. The intent of mod_event_agent is to be a transparent
+ * ESL-over-NATS bridge — anything you can do with `fs_cli` or ESL you
+ * can also do here. Authorization (who is allowed to publish what)
+ * lives in the broker (NATS token / NKey / subject ACLs / JWT
+ * claims), not in this file.
  *
- * `shutdown`, `fsctl shutdown`, `unload`/`load`/`reload` (modules), and
- * `bgapi` are the obvious foot-guns: shutdown stops the engine, module
- * commands can swap implementations at runtime, and `bgapi` would let
- * a caller bypass this very allowlist by wrapping the inner command.
+ * The optional denylist below is a defense-in-depth knob for
+ * deployments that want to pin specific verbs (sandbox public access,
+ * compliance, dev environments). It defaults to EMPTY so out-of-the
+ * -box behaviour is "forward everything"; operators opt in by
+ * populating MOD_EVENT_AGENT_API_DENYLIST or the matching XML param.
  *
- * The check is on the leading API verb only; sub-arguments are not
- * filtered (they go to the API itself which can reject them).
- *
- * Specific commands the module exposes — `originate`, `hangup`,
- * `agent.status`, `dialplan.*` — are routed through their dedicated
- * registered handlers and never reach this fallback, so denying their
- * names here is irrelevant to legitimate flows. */
-static const char *const COMMAND_API_DENYLIST[] = {
-    "shutdown",
-    "fsctl",        /* fsctl shutdown / fsctl reset / fsctl crash */
-    "load",
-    "unload",
-    "reload",
-    "reloadxml",    /* allowed via explicit reloadxml command if needed */
-    "reloadacl",
-    "bgapi",        /* could nest a denied command */
-    "system",       /* shells out to the host OS */
-    "bg_system",
-    "lua",          /* eval arbitrary Lua */
-    "luarun",
-    "msleep",       /* DoS knob */
-    NULL
-};
+ * Specific commands the module exposes through typed handlers
+ * (`originate`, `hangup`, `agent.status`, `dialplan.*`, etc.) bypass
+ * this fallback entirely — putting their names in the denylist has
+ * no effect on those flows.
+ */
 
 static int command_is_denied(const char *command) {
     if (zstr(command)) {
+        /* Empty command is always rejected; the dispatcher should
+         * never reach us with one, but we guard anyway. */
         return 1;
     }
-    for (size_t i = 0; COMMAND_API_DENYLIST[i] != NULL; i++) {
-        if (strcasecmp(command, COMMAND_API_DENYLIST[i]) == 0) {
+    if (globals.api_denylist_count == 0 || globals.api_denylist == NULL) {
+        return 0;
+    }
+    for (uint32_t i = 0; i < globals.api_denylist_count; i++) {
+        const char *entry = globals.api_denylist[i];
+        if (entry && strcasecmp(command, entry) == 0) {
             return 1;
         }
     }
@@ -50,13 +41,10 @@ static int command_is_denied(const char *command) {
 }
 
 static command_result_t handle_api_generic(const command_request_t *request) {
-    /* Generic-API fallback. Anything that is NOT registered as a typed
-     * handler ends up here. Apply the denylist before reaching
-     * switch_api_execute so a malicious / misbehaving publisher cannot
-     * shutdown the engine or hot-swap modules through the bus. */
     if (command_is_denied(request->command)) {
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
-                          "[mod_event_agent] Rejecting denied API command: %s", request->command);
+                          "[mod_event_agent] Rejecting denylisted API command: %s",
+                          request->command);
         return command_result_error("Command is not permitted via the event bus");
     }
 

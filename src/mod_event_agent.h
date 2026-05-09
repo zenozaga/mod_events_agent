@@ -42,6 +42,17 @@ typedef struct {
     uint32_t include_count;
     uint32_t exclude_count;
 
+    /* Optional API denylist. Default is NULL/0 — the module then
+     * acts as a transparent ESL-over-NATS bridge and forwards every
+     * `switch_api_execute()` call. Operators who want a guardrail
+     * (sandbox deployments, compliance, etc.) can populate it via
+     *   - env var MOD_EVENT_AGENT_API_DENYLIST="cmd1,cmd2,..."
+     *   - <param name="api_denylist" value="cmd1,cmd2,..."/> in the XML
+     * Env wins over XML. The check is case-insensitive on the leading
+     * verb only; sub-arguments are not filtered. */
+    char **api_denylist;
+    uint32_t api_denylist_count;
+
     switch_bool_t running;
     uint64_t events_published;
     uint64_t events_failed;
