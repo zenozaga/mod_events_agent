@@ -63,13 +63,31 @@ static switch_xml_t dialplan_xml_fetch(const char *section,
         switch_xml_set_attr_d(action_xml, "data", "");
     }
     
+    /* Park timeout failsafe — siempre lo seteamos. Si el brain Go no
+     * reclama el canal en este tiempo, FreeSWITCH lo cuelga limpio
+     * con park_timeout_dest (NORMAL_CLEARING). Default 30s, override
+     * via dialplan_manager_set_park_timeout. Cero = forever (no
+     * recomendado pero permitido para tests específicos). */
+    {
+        char timeout_data[64];
+        switch_snprintf(timeout_data, sizeof(timeout_data),
+                        "park_timeout=%u", manager->park_timeout);
+        action_xml = switch_xml_add_child_d(condition_xml, "action", 0);
+        switch_xml_set_attr_d(action_xml, "application", "set");
+        switch_xml_set_attr_d(action_xml, "data", timeout_data);
+
+        if (manager->park_timeout > 0) {
+            action_xml = switch_xml_add_child_d(condition_xml, "action", 0);
+            switch_xml_set_attr_d(action_xml, "application", "set");
+            switch_xml_set_attr_d(action_xml, "data",
+                                  "park_timeout_dest=hangup NORMAL_CLEARING");
+        }
+    }
+
     /* Audio mode configuration */
     switch (manager->audio_mode) {
         case AUDIO_MODE_SILENCE:
-            /* No audio, just silence */
-            action_xml = switch_xml_add_child_d(condition_xml, "action", 0);
-            switch_xml_set_attr_d(action_xml, "application", "set");
-            switch_xml_set_attr_d(action_xml, "data", "park_timeout=0");
+            /* Silence — sin audio adicional. park_timeout ya seteado arriba. */
             break;
             
         case AUDIO_MODE_RINGBACK:
@@ -157,6 +175,7 @@ switch_status_t dialplan_manager_init(dialplan_manager_t **manager, switch_memor
     m->auto_answer = SWITCH_FALSE;
     m->context_name = switch_core_strdup(pool, "default");
     switch_copy_string(m->music_class, "moh", sizeof(m->music_class));
+    m->park_timeout = DIALPLAN_PARK_TIMEOUT_DEFAULT;
     
     /* Bind to dialplan section */
     if (switch_xml_bind_search_function_ret(dialplan_xml_fetch, 
@@ -243,6 +262,27 @@ switch_status_t dialplan_manager_set_auto_answer(dialplan_manager_t *manager, sw
     return SWITCH_STATUS_SUCCESS;
 }
 
+switch_status_t dialplan_manager_set_park_timeout(dialplan_manager_t *manager, uint32_t timeout_seconds)
+{
+    if (!manager) {
+        return SWITCH_STATUS_FALSE;
+    }
+
+    switch_mutex_lock(manager->mutex);
+    manager->park_timeout = timeout_seconds;
+    switch_mutex_unlock(manager->mutex);
+
+    if (timeout_seconds == 0) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
+                          "Dialplan Manager: park_timeout set to 0 (forever) — calls will not auto-hangup if Go does not reclaim them. Use only for controlled tests.\n");
+    } else {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
+                          "Dialplan Manager: park_timeout changed to %u seconds\n", timeout_seconds);
+    }
+
+    return SWITCH_STATUS_SUCCESS;
+}
+
 switch_status_t dialplan_manager_set_music_class(dialplan_manager_t *manager, const char *music_class)
 {
     if (!manager || zstr(music_class)) {
@@ -287,6 +327,7 @@ void dialplan_manager_get_status(dialplan_manager_t *manager, switch_stream_hand
         "  Auto Answer: %s\n"
         "  Context: %s\n"
         "  Music Class: %s\n"
+        "  Park Timeout: %u s%s\n"
         "  Calls Intercepted: %u\n"
         "  Calls Parked: %u\n",
         manager->mode == DIALPLAN_MODE_PARK ? "PARK" : "DISABLED",
@@ -295,6 +336,8 @@ void dialplan_manager_get_status(dialplan_manager_t *manager, switch_stream_hand
         manager->auto_answer ? "YES" : "NO",
         manager->context_name,
         manager->music_class,
+        manager->park_timeout,
+        manager->park_timeout == 0 ? " (FOREVER — anti-pattern)" : "",
         manager->calls_intercepted,
         manager->calls_parked
     );
