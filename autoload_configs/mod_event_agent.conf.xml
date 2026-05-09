@@ -1,25 +1,61 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  mod_event_agent — example configuration.
+
+  Production deployments should source secrets (token, nkey seed) from
+  environment variables, not from this file. The module reads the env
+  vars listed below at startup and they take precedence over any value
+  declared here. The XML is kept around for non-secret fields (URL,
+  prefix, node id, event filters) and as an emergency fallback.
+
+  Environment variables (env wins over XML when both are set):
+    MOD_EVENT_AGENT_TOKEN     — NATS auth token (recommended)
+    MOD_EVENT_AGENT_NKEY_SEED — NATS NKey seed (alternative to token)
+    MOD_EVENT_AGENT_URL       — NATS broker URL
+    MOD_EVENT_AGENT_NODE_ID   — Unique identifier of this FS node
+
+  See INSTALL.md for the full operator guide.
+-->
 <configuration name="event_agent.conf" description="Event Agent Module - Message Broker Integration">
   <settings>
-    
-    <!-- Driver: nats | kafka | rabbitmq | redis -->
+
+    <!-- Driver: only `nats` is supported today; the interface in
+         src/drivers/interface.h leaves room for future backends. -->
     <param name="driver" value="nats"/>
-    
-    <!-- NATS URL - Variables: NATS_HOST, NATS_PORT -->
+
+    <!-- NATS broker URL. Use the FreeSWITCH variable substitution to
+         keep host/port out of this file. Recommended override path:
+         set MOD_EVENT_AGENT_URL in the environment instead. -->
     <param name="url" value="nats://$${nats_host}:$${nats_port}"/>
-    
-    <!-- NATS Authentication (optional) -->
+
+    <!-- Auth credentials. LEAVE BLANK in this file. The module pulls
+         them from MOD_EVENT_AGENT_TOKEN / MOD_EVENT_AGENT_NKEY_SEED
+         at startup. If a non-empty value lands here in production
+         the module logs a DEPRECATED warning and uses it as fallback,
+         but the recommended path is env-only so a leaked config file
+         never carries credentials. -->
     <param name="token" value=""/>
     <param name="nkey_seed" value=""/>
-    
-    <!-- Event Publishing -->
+
+    <!-- Event filtering. publish_all_events=true means every FS event
+         crosses the bus; the include / exclude pairs let you restrict
+         that without touching code. DTMF and HEARTBEAT are excluded
+         by default because they are very noisy and rarely useful to
+         downstream consumers. -->
     <param name="publish_all_events" value="true"/>
     <param name="include" value=""/>
     <param name="exclude" value="DTMF,HEARTBEAT"/>
+
+    <!-- Subject prefix that prepends every published subject. The
+         module sanitises this (caps at 64 chars and replaces anything
+         outside [a-zA-Z0-9._-] with `_`) so a misconfigured value
+         cannot inject CR/LF into the NATS wire protocol. -->
     <param name="subject_prefix" value="freeswitch"/>
-    
-    <!-- Cluster Node ID -->
+
+    <!-- Per-node identifier used both for routing
+         (`<prefix>.node.<id>` for direct addressing) and for tagging
+         every event payload. Override via MOD_EVENT_AGENT_NODE_ID. -->
     <param name="node_id" value="$${agent_node_id}"/>
-    
+
   </settings>
 </configuration>

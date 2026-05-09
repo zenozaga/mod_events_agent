@@ -289,67 +289,86 @@ Payload: {"command": "status"}
 
 ---
 
+## 🛡️ Security model
+
+The module is designed for an **internal, trusted network** where the
+NATS broker is the perimeter. Hardening lives at three layers, each
+adding defence in depth:
+
+### 1. Connection-level auth (env-driven)
+
+Every credential is sourced from the environment, never from the XML
+config (so a checked-in repo never leaks secrets):
+
+| Env var | Purpose |
+|---------|---------|
+| `MOD_EVENT_AGENT_TOKEN` | NATS auth token (recommended) |
+| `MOD_EVENT_AGENT_NKEY_SEED` | NATS NKey seed (alternative to token) |
+| `MOD_EVENT_AGENT_URL` | Broker URL (e.g. `nats://nats:4222`) |
+| `MOD_EVENT_AGENT_NODE_ID` | Per-node identifier |
+
+Env values override anything declared in the XML. The token / nkey
+fields in `event_agent.conf.xml` are deprecated and emit a warning
+when populated.
+
+### 2. Message-level guards (always on)
+
+| Guard | What it does |
+|-------|--------------|
+| **Payload size cap** | Rejects any inbound JSON over 64 KB before parsing — backstop against an OOM-by-publish attack. |
+| **Empty payload guard** | A NULL or zero-byte body is rejected with a distinct message instead of being mis-classified as bad JSON. |
+| **API command denylist** | The generic-API fallback refuses `shutdown`, `fsctl`, `load`, `unload`, `reload`, `reloadxml`, `reloadacl`, `bgapi`, `bg_system`, `system`, `lua`, `luarun`, and `msleep`. |
+| **Subject-prefix sanitisation** | The configurable `subject_prefix` is capped at 64 chars and any character outside `[a-zA-Z0-9._-]` is replaced with `_` — eliminates a CR/LF wire-protocol injection surface from a hostile config. |
+| **Subscription cap** | The driver refuses to register more than 32 simultaneous subscriptions (the module legitimately needs ≤ 2). |
+
+### 3. Forensic audit trail
+
+Every command attempt emits a single INFO line of the shape
+
+```
+[mod_event_agent] audit=command cmd=<name> subject=<subj> result=ok|err
+                  async=yes|no payload_bytes=<size>
+```
+
+Payload contents are deliberately **not** logged — `event_context`
+may carry PII. Operators grep `audit=command` for the trail.
+
+See `INSTALL.md` for the operator runbook including how to verify
+each guard with the bundled tests.
+
+---
+
 ## 🚦 Quick Start
 
-### 1. Install NATS Server
+The fastest path to a working module in a dev stack:
 
 ```bash
-# Docker (recommended)
-docker run -d --name nats -p 4222:4222 -p 8222:8222 nats:alpine
+# 1. Build the FS+module image (the Dockerfile bundles libnats + the .so)
+docker build -t freeswitch-events-agent:latest -f Dockerfile.freeswitch .
 
-# Or download binary (no dependencies)
-# https://nats.io/download/
+# 2. Run it pointing at any NATS broker on your network
+docker run -d --name fs \
+    -e MOD_EVENT_AGENT_URL=nats://nats:4222 \
+    -e MOD_EVENT_AGENT_TOKEN=$NATS_TOKEN \
+    -e MOD_EVENT_AGENT_NODE_ID=fs-prod-01 \
+    freeswitch-events-agent:latest
+
+# 3. Smoke-check from any host that can reach the same broker
+nats --server nats://nats:4222 \
+     req freeswitch.api '{"command":"agent.status"}' --timeout 3s
 ```
 
-### 2. Compile Module
+For the canonical FreeSWITCH-native install (drop-in inside
+`freeswitch/src/mod/applications/`, autotools build), or for the
+standalone Makefile path used during development, see **[INSTALL.md](INSTALL.md)**.
 
-```bash
-make clean && make WITH_NATS=1
-sudo make install
+### Logging note
+
+`mod_event_agent` writes straight through `switch_log_printf`, so
+verbosity follows the regular FreeSWITCH logging knobs:
+
 ```
-
-### 3. Configure FreeSWITCH
-
-Edit `/etc/freeswitch/autoload_configs/event_agent.conf.xml`:
-
-```xml
-<configuration name="event_agent.conf" description="Event Agent Module">
-  <settings>
-    <param name="driver" value="nats"/>
-    <param name="url" value="nats://localhost:4222"/>
-    <param name="subject_prefix" value="freeswitch"/>
-    <param name="node-id" value="fs-node-01"/>
-    
-    <!-- Event filtering -->
-    <param name="include-events" value="CHANNEL_CREATE,CHANNEL_ANSWER,CHANNEL_HANGUP"/>
-    <!-- <param name="exclude-events" value="HEARTBEAT"/> -->
-  </settings>
-</configuration>
-```
-
-> **Logging note:** `mod_event_agent` now writes straight through `switch_log_printf`, so you should manage verbosity using the regular FreeSWITCH logging commands (for example `fs_cli -x "log debug"`).
-
-### 4. Load Module
-
-```bash
-fs_cli -x "load mod_event_agent"
-# Or add to modules.conf.xml for auto-load
-```
-
-### 5. Test Commands
-
-```bash
-# Using NATS CLI (sync request)
-nats req freeswitch.api '{"command":"show","args":"modules"}' --server nats://localhost:4222
-
-# Using NATS CLI (async fire-and-forget)
-nats pub freeswitch.api '{"command":"originate","endpoint":"user/1000","extension":"&park","async":true}'
-
-# Using web interface
-cd example
-npm install
-node server.js
-# Open http://localhost:3000
+fs_cli -x "log debug"
 ```
 
 ## 📁 Project Structure
@@ -359,48 +378,54 @@ mod_events_agent/
 ├── src/
 │   ├── mod_event_agent.c          # Module entry point
 │   ├── mod_event_agent.h          # Main header
-│   │
-│   ├── core/                      # Configuration helpers
-│   │   └── config.c               # XML config parser
-│   │
-│   ├── events/                    # Event streaming
-│   │   ├── adapter.c              # Event subscription & publishing
+│   ├── core/
+│   │   └── config.c               # XML + env config parser
+│   ├── events/
+│   │   ├── adapter.c              # FS event subscription & publishing
 │   │   └── serializer.c           # JSON serialization
-│   │
-│   ├── dialplan/                  # Dynamic dialplan control
+│   ├── dialplan/
 │   │   ├── manager.c              # XML binding & park mode
-│   │   └── commands.c             # NATS command handlers
-│   │
-│   ├── commands/                  # Remote command handlers
-│   │   ├── handler.c              # Command dispatcher
-│   │   ├── core.c                 # Request validation
-│   │   ├── api.c                  # Generic API execution
-│   │   ├── call.c                 # Originate/Hangup commands
-│   │   └── status.c               # Statistics & health
-│   │
-│   ├── validation/                # Shared payload helpers
-│   │   ├── validation.c           # v_string/v_enum/... implementations
-│   │   └── validation.h           # Helper macros (v_len, v_range, etc.)
-│   │
-│   └── drivers/                   # Message broker drivers
-│       ├── interface.h            # Driver interface definition
-│       └── nats.c                 # NATS implementation
+│   │   └── commands.c             # Dialplan-control commands
+│   ├── commands/
+│   │   ├── handler.c              # Command dispatcher (size cap, audit log)
+│   │   ├── core.c                 # Request envelope helpers
+│   │   ├── api.c                  # Generic API execution + denylist
+│   │   ├── call.c                 # Originate / hangup
+│   │   └── status.c               # agent.status
+│   ├── validation/
+│   │   ├── validation.c           # Typed payload validators
+│   │   └── validation.h           # v_len / v_range macros
+│   └── drivers/
+│       ├── interface.h            # Driver interface
+│       └── nats.c                 # NATS driver (subscription cap, leak fixes)
+│
+├── tests/
+│   ├── Makefile                   # Builds the four test binaries
+│   ├── run.sh                     # Orchestrator (build + smoke + run)
+│   └── src/
+│       ├── show_modules_test.c    # Legacy quick-check
+│       ├── test_size_limit.c      # Verifies the 64KB cap
+│       ├── test_denylist.c        # 13 denied verbs + 3 allowed
+│       └── test_validation.c      # 11 invalid-payload cases
 │
 ├── docs/
 │   ├── API.md                     # Complete API reference
 │   ├── DIALPLAN_CONTROL.md        # Dialplan control guide
 │   └── ROADMAP.md                 # Driver development roadmap
 │
-├── example/                        # Web interface example
-│   ├── server.js                  # Node.js HTTP server (native)
-│   ├── package.json               # NATS dependency only
-│   └── public/
-│       └── index.html             # Complete frontend (Vanilla JS)
-│
+├── m4/
+│   └── ax_lib_nats.m4             # Autoconf detection for libnats
 ├── autoload_configs/
-│   └── mod_event_agent.conf.xml   # Configuration template
+│   └── mod_event_agent.conf.xml   # Config template (env vars preferred)
 │
-└── Makefile                        # Build system
+├── INSTALL.md                     # Operator install guide (3 paths)
+├── Makefile                        # Standalone build (custom)
+├── Makefile.am                     # In-tree FreeSWITCH build (autotools)
+├── configure.ac.snippet            # FS configure.ac integration recipe
+├── Dockerfile                      # Module-only image (build artifacts)
+├── Dockerfile.freeswitch           # FS + module pre-baked image
+├── docker-compose.dev.yaml         # Local dev stack (FS + NATS)
+└── install.sh                      # In-container helper installer
 ```
 
 ---
@@ -453,52 +478,89 @@ Add `"async": true` to any payload when you do not need a reply. The server stil
 
 ## 🚀 Installation
 
-### Requirements
-- FreeSWITCH 1.10+ (headers installed in `/usr/local/freeswitch/include` or equivalent)
-- Linux/Unix system
-- build toolchain: `gcc`, `make`, `pkg-config`
-- `libcjson` headers (`libcjson-dev` on Debian/Ubuntu)
-- `libssl`/`libcrypto` headers (`libssl-dev`)
-- NATS Server (runtime dependency)
-- Bundled NATS C client (already in `lib/` + `include/` — no extra install needed)
+Three install paths are documented in **[INSTALL.md](INSTALL.md)**.
+Quick summary:
 
-### Installation Flow
+| Path | When |
+|------|------|
+| **A. In-tree FreeSWITCH build** | You compile FS from source. Module sits at `freeswitch/src/mod/applications/mod_event_agent/` and is built by FS's autotools — same pattern as `mod_skel`, `mod_amqp`, etc. Requires `Makefile.am` (in this repo) plus the three configure.ac edits documented in `configure.ac.snippet`. |
+| **B. Standalone build** | You have FS pre-installed with headers available. `make && sudo make install` against the included `Makefile`. Useful for local iteration. |
+| **C. Docker image** | Use `Dockerfile.freeswitch` to bake the module into a complete FS image. Used in `docker-compose.dev.yaml` for the dev stack. |
 
-1. Build the module (use the same commands listed in Quick Start step 2).
-2. Copy `mod_event_agent.so` into `/usr/local/freeswitch/mod/`.
-3. Copy `autoload_configs/mod_event_agent.conf.xml` into `/usr/local/freeswitch/conf/autoload_configs/`.
-4. Add `<load module="mod_event_agent"/>` to `modules.conf.xml` if it is not already present.
-5. Restart FreeSWITCH (`systemctl restart freeswitch` or an equivalent command for your distribution).
+### Build requirements
 
-> **Container tip:** Run `./install.sh` inside the FreeSWITCH container to automate steps 2 and 3. The script auto-detects container paths and applies the same layout used on bare metal.
+- FreeSWITCH 1.10+ (headers available, either via FS source tree or
+  installed at `/usr/local/freeswitch/include/freeswitch`)
+- Linux/Unix
+- gcc, make, pkg-config
+- `libcjson-dev` ≥ 1.7
+- `libssl-dev`
+- `libnats` headers + lib (system install OR the bundled
+  `lib/nats/libnats_static.a` for the standalone path)
 
-> **Dev stacks:** The `docker-compose.dev.yaml` file provisions FreeSWITCH + NATS for local testing if you prefer a fully containerized workflow.
+### Loading order
+
+The module registers a single XML binding (the dynamic dialplan) at
+load. Register it in `modules.conf.xml` after the standard
+endpoint/codec modules so any park-mode interception only takes
+effect once the rest of the dialplan is wired:
+
+```xml
+<load module="mod_dialplan_xml"/>
+...
+<load module="mod_event_agent"/>
+```
 
 ---
 
 ## ⚙️ Configuration
 
-Edit `/usr/local/freeswitch/conf/autoload_configs/mod_event_agent.conf.xml`:
+Two layers, in precedence order:
+
+### Layer 1 — Environment variables (recommended for production)
+
+```bash
+export MOD_EVENT_AGENT_URL=nats://nats:4222
+export MOD_EVENT_AGENT_TOKEN=<auth-token>      # OR …
+export MOD_EVENT_AGENT_NKEY_SEED=<nkey-seed>
+export MOD_EVENT_AGENT_NODE_ID=fs-prod-01
+```
+
+Env wins over XML and is the only path that should carry secrets.
+
+### Layer 2 — `autoload_configs/mod_event_agent.conf.xml`
+
+Used for non-secret fields (event filters, subject prefix) and as a
+fallback for the URL/node id when env is absent. The reference file
+shipped at `autoload_configs/mod_event_agent.conf.xml` documents
+every supported parameter inline.
 
 ```xml
-<configuration name="mod_event_agent.conf" description="Event Agent Module">
+<configuration name="event_agent.conf">
   <settings>
-    <!-- Driver selection: nats (current implementation) -->
     <param name="driver" value="nats"/>
-    
-    <!-- Message broker URL -->
-    <param name="url" value="nats://localhost:4222"/>
-    
-    <!-- Node identification (for multi-node clusters) -->
-    <param name="node-id" value="fs-node-01"/>
-    
-    <!-- NATS specific settings -->
-    <param name="nats-timeout" value="5000"/>           <!-- Connection timeout (ms) -->
-    <param name="nats-max-reconnect" value="60"/>       <!-- Max reconnection attempts -->
-    <param name="nats-reconnect-wait" value="2000"/>    <!-- Wait between reconnects (ms) -->
+    <param name="url" value="nats://$${nats_host}:$${nats_port}"/>
+
+    <!-- Leave token / nkey_seed BLANK in production. The module
+         picks them up from env vars; a non-empty value here logs a
+         DEPRECATED warning at module load. -->
+    <param name="token" value=""/>
+    <param name="nkey_seed" value=""/>
+
+    <!-- Event filtering -->
+    <param name="publish_all_events" value="true"/>
+    <param name="exclude" value="DTMF,HEARTBEAT"/>
+
+    <param name="subject_prefix" value="freeswitch"/>
+    <param name="node_id" value="$${agent_node_id}"/>
   </settings>
 </configuration>
 ```
+
+> Reconnect / timeout knobs are baked into the driver
+> (`MaxReconnect=60`, `ReconnectWait=1s`, `ReconnectBufSize=8MB`) and
+> are not currently configurable. Open an issue if you need them
+> exposed.
 
 ### Multi-Node Configuration
 
@@ -670,6 +732,47 @@ FreeSWITCH Events → NATS → [
 - Real-time global monitoring
 ```
  
+---
+
+## 🧪 Testing
+
+The repo ships an integration test suite under `tests/` that talks
+to a running module via real NATS, the same way a production client
+would.
+
+```bash
+# 1. Bring up the dev stack (FS + NATS in docker)
+docker compose -f docker-compose.dev.yaml up -d
+
+# 2. Build + run the suite. run.sh probes the broker and the module
+# before each test so failures are unambiguous.
+cd tests
+make
+MOD_EVENT_AGENT_URL=nats://localhost:7001 \
+MOD_EVENT_AGENT_NODE_ID=fs-audit \
+./run.sh
+```
+
+The four test binaries:
+
+| Binary | Asserts |
+|--------|---------|
+| `test_size_limit`  | The 64KB payload cap rejects oversized requests with the `Payload too large` message. |
+| `test_denylist`    | All 13 denied API verbs are blocked AND `uptime`/`version`/`status` still go through. |
+| `test_validation`  | 11 invalid-payload cases (parse errors, missing fields, wrong types, enum violations) each return the expected error. |
+| `show_modules_test`| Legacy quick-check; sends `show modules` and prints the response. |
+
+Last verified run against `freeswitch-events-agent` Docker image:
+
+```
+test_size_limit  : ALL PASS  (3/3 cases)
+test_denylist    : ALL PASS  (16/16 cases)
+test_validation  : ALL PASS  (11/11 cases)
+```
+
+CI consumers should `make check` from `tests/` — `run.sh` exits
+non-zero on any failure.
+
 ---
 
 ## 🛠️ Driver Development
