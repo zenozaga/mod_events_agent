@@ -18,11 +18,14 @@ char *serialize_event_to_json(switch_event_t *event, const char *node_id)
         return NULL;
     }
 
+    cJSON_AddStringToObject(json_event, "event_id", switch_event_name(event->event_id));
+
     cJSON_AddStringToObject(json_event, "event_name", 
                            switch_event_name(event->event_id));
     
     cJSON_AddNumberToObject(json_event, "timestamp", 
                            (double)switch_micro_time_now());
+                           
 
     if (node_id) {
         cJSON_AddStringToObject(json_event, "node_id", node_id);
