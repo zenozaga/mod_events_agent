@@ -1,5 +1,6 @@
 #include "mod_event_agent.h"
 #include <stdlib.h>
+#include <ctype.h>
 
 #define EVENT_FILTER_CAP 128
 
@@ -12,6 +13,12 @@
 #define ENV_URL       "MOD_EVENT_AGENT_URL"
 #define ENV_NODE_ID   "MOD_EVENT_AGENT_NODE_ID"
 
+/* Bound on the subject_prefix to keep generated NATS subjects short
+ * and predictable. Real prefixes are 1-2 segments ("freeswitch",
+ * "fs.prod"); the cap exists to stop a misconfigured (or hostile)
+ * config from producing 4 KB subjects. */
+#define SUBJECT_PREFIX_MAX 64
+
 /* Helper: read env var and copy into the module pool when non-empty. */
 static const char *env_strdup(switch_memory_pool_t *pool, const char *name)
 {
@@ -20,6 +27,25 @@ static const char *env_strdup(switch_memory_pool_t *pool, const char *name)
         return NULL;
     }
     return switch_core_strdup(pool, raw);
+}
+
+/* sanitise_subject_prefix scrubs anything that could break the NATS
+ * wire protocol (\r, \n, spaces, NULs implied) or that NATS itself
+ * would reject as a subject token. The protocol uses CRLF as line
+ * terminator, so an attacker who controls the prefix could otherwise
+ * splice arbitrary commands into the connection by setting prefix to
+ * "evil\r\nPUB target 0\r\n". We over-strip to be safe: only the
+ * canonical NATS subject token charset survives (alnum, '_', '-',
+ * '.'). Anything else is replaced with '_' in place. */
+static void sanitise_subject_prefix(char *prefix)
+{
+    if (!prefix) return;
+    for (char *p = prefix; *p; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (!(isalnum(c) || c == '_' || c == '-' || c == '.')) {
+            *p = '_';
+        }
+    }
 }
 
 switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
@@ -123,7 +149,18 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
             }
         }
         else if (!strcasecmp(name, "subject_prefix")) {
-            globals.subject_prefix = switch_core_strdup(pool, value);
+            /* Cap length and scrub characters that could splice into
+             * the NATS wire protocol or produce invalid subjects.
+             * Operators legitimately need only "[a-z0-9._-]+". */
+            if (strlen(value) >= SUBJECT_PREFIX_MAX) {
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR,
+                                  "[mod_event_agent] subject_prefix too long (%zu); using default",
+                                  strlen(value));
+            } else {
+                char *clean = switch_core_strdup(pool, value);
+                sanitise_subject_prefix(clean);
+                globals.subject_prefix = clean;
+            }
         }
         else if (!strcasecmp(name, "node_id")) {
             if (!env_node) {

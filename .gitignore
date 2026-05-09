@@ -102,3 +102,6 @@ secrets/
 .private/
 
 compile_commands.json
+tests/bin/
+*.o
+mod_event_agent.so

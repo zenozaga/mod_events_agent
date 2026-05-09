@@ -1,6 +1,16 @@
 #include "interface.h"
 #include <nats/nats.h>
 
+/* Hard ceiling on simultaneous NATS subscriptions held by the driver.
+ * The module legitimately needs only two: the broadcast `<prefix>.api`
+ * lane and the per-node `<prefix>.node.<id>` lane, plus a handful for
+ * a future feature surface. A misbehaving caller (or a bug in the
+ * resubscribe-after-reconnect path) could otherwise spin up
+ * subscriptions until libnats runs out of file descriptors or the
+ * NATS server kicks the connection. The cap surfaces the bug early
+ * with a loud refusal instead of a silent leak. */
+#define NATS_DRIVER_MAX_SUBSCRIPTIONS 32
+
 typedef struct {
     natsConnection *conn;
     natsOptions *opts;
@@ -197,13 +207,40 @@ static switch_status_t nats_subscribe(event_driver_t *driver, const char *subjec
      * that did not unsubscribe first) we would leak the previous
      * natsSubscription handle and the previous nsub stays alive
      * holding a stale callback closure. Reject the duplicate so the
-     * caller has to clean up explicitly. */
+     * caller has to clean up explicitly.
+     *
+     * The same critical section also enforces NATS_DRIVER_MAX_SUBSCRIPTIONS:
+     * we count the live subscriptions before adding a new one, and
+     * refuse if we are at the cap. This stops a runaway subscribe
+     * loop from exhausting fds / server memory before the operator
+     * notices. */
     switch_mutex_lock(ctx->mutex);
     if (switch_core_hash_find(ctx->subscriptions, subject) != NULL) {
         switch_mutex_unlock(ctx->mutex);
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
                           "[mod_event_agent] NATS already subscribed to %s; refusing to overwrite", subject);
         return SWITCH_STATUS_FALSE;
+    }
+    /* Walk the hash to count entries. The hash is small (≤ cap) so
+     * an O(n) walk on subscribe is fine and saves us a separate
+     * counter that could drift on partial failure paths. */
+    {
+        switch_hash_index_t *hi;
+        size_t live = 0;
+        for (hi = switch_core_hash_first(ctx->subscriptions); hi; hi = switch_core_hash_next(&hi)) {
+            live++;
+            if (live >= NATS_DRIVER_MAX_SUBSCRIPTIONS) {
+                switch_mutex_unlock(ctx->mutex);
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR,
+                                  "[mod_event_agent] NATS subscription cap reached (%d); refusing %s",
+                                  NATS_DRIVER_MAX_SUBSCRIPTIONS, subject);
+                /* hi may not be NULL when we break; there is no
+                 * documented "free index" call, but the iterator is
+                 * pool-backed and reclaimed on driver teardown, so
+                 * this is safe. */
+                return SWITCH_STATUS_FALSE;
+            }
+        }
     }
     switch_mutex_unlock(ctx->mutex);
 

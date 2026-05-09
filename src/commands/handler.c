@@ -84,6 +84,20 @@ void command_register_default_handler(command_handler_fn handler) {
 static void dispatch_command(const char *subject, const char *data, size_t len, const char *reply_to, void *user_data) {
     command_stats_increment_received();
 
+    /* Empty-payload guard. Some misconfigured clients publish an
+     * empty body (or NUL-only) to the api subject; cJSON_Parse on
+     * that returns NULL with no useful error. Catch it explicitly so
+     * we log the event distinctly instead of misreporting it as
+     * "Invalid JSON". */
+    if (data == NULL || len == 0) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
+                          "[mod_event_agent] Empty payload on subject %s",
+                          subject ? subject : "<unknown>");
+        command_stats_increment_failed();
+        publish_response(reply_to, SWITCH_FALSE, "Empty payload", NULL);
+        return;
+    }
+
     /* Size guard. Reject anything obviously too big BEFORE handing to
      * cJSON_Parse, which would otherwise allocate proportional to the
      * input. This is the cheapest backstop against a malformed publisher
@@ -162,6 +176,22 @@ static void dispatch_command(const char *subject, const char *data, size_t len, 
 
     command_result_t result = handler(&request);
     const switch_bool_t success = result.error == NULL;
+
+    /* Single-line audit log of every command attempt. INFO level so
+     * an operator can grep `mod_event_agent.*audit=` for the trail
+     * of who-did-what without having to enable DEBUG. The message
+     * stays terse on purpose — the receipt + outcome + size are
+     * enough for forensics; full payloads at INFO would be a
+     * compliance risk if event_context carries PII. */
+    switch_log_printf(SWITCH_CHANNEL_LOG,
+                      SWITCH_LOG_INFO,
+                      "[mod_event_agent] audit=command cmd=%s subject=%s "
+                      "result=%s async=%s payload_bytes=%zu",
+                      command_name,
+                      subject ? subject : "<unknown>",
+                      success ? "ok" : "err",
+                      async == SWITCH_TRUE ? "yes" : "no",
+                      len);
 
     if (success) {
         command_stats_increment_success();

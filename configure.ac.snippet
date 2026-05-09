@@ -1,0 +1,38 @@
+dnl ============================================================
+dnl mod_event_agent integration snippet for FreeSWITCH configure.ac
+dnl ============================================================
+dnl
+dnl Drop these blocks into the FreeSWITCH `configure.ac` when you
+dnl install this module in-tree at:
+dnl     freeswitch/src/mod/applications/mod_event_agent/
+dnl
+dnl Two minimal edits to FS upstream:
+dnl
+dnl   1) Near the top of configure.ac, after the existing PKG_CHECK_*
+dnl      block (search for "PKG_CHECK_MODULES" and append):
+dnl
+dnl        m4_include([src/mod/applications/mod_event_agent/m4/ax_lib_nats.m4])
+dnl        PKG_CHECK_MODULES([CJSON], [libcjson >= 1.7])
+dnl        AX_LIB_NATS
+dnl
+dnl   2) At the bottom of configure.ac, in the AC_CONFIG_FILES list
+dnl      that lists every module's Makefile, add:
+dnl
+dnl        src/mod/applications/mod_event_agent/Makefile
+dnl
+dnl   3) Activate the module on installs by adding a line to
+dnl      build/modules.conf.in:
+dnl
+dnl        applications/mod_event_agent
+dnl
+dnl After those three edits:
+dnl     ./bootstrap.sh && ./configure && make && sudo make install
+dnl
+dnl …drops mod_event_agent.so into $prefix/freeswitch/mod/ alongside
+dnl the rest of FS, and `load mod_event_agent` works on next start.
+dnl
+dnl The libcjson and libnats checks are mandatory because the module
+dnl will not link without them. Operators who prefer a Kafka or other
+dnl driver can extend the AC_DEFUN([AX_LIB_NATS]) pattern in m4/ to
+dnl detect their backend and add a parallel `if HAVE_KAFKA` block in
+dnl the Makefile.am.
