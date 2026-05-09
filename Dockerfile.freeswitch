@@ -33,6 +33,53 @@ COPY lib/ lib/
 
 RUN make DRIVER=nats clean all
 
+# ---------------------------------------------------------------------
+# mod_loopback builder
+# ---------------------------------------------------------------------
+# The drachtio FreeSWITCH base image ships ~159 modules but NOT
+# mod_loopback. The Go agent's call-control integration tests
+# (pkg/freeswitch_agent/agent_test.go::TestCallCommands) need a
+# loopback endpoint to originate against without dialing a real SIP
+# peer. Compiling mod_loopback from FS source against the headers
+# already in the base image keeps the ABI in sync.
+#
+# We pull the matching FS release tarball, build only mod_loopback.c
+# as a shared object, and copy the result into the final stage. The
+# rest of FS stays untouched.
+FROM debian:bookworm-slim AS loopback-builder
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    pkg-config \
+    wget \
+    xz-utils \
+    libpcre3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# FS headers + libs from the base image so the compiled .so links
+# against the exact same libfreeswitch the runtime uses. Drift here
+# leads to symbol-version errors on module load.
+COPY --from=freeswitch-base /usr/local/freeswitch/include/freeswitch /usr/local/freeswitch/include/freeswitch
+COPY --from=freeswitch-base /usr/local/freeswitch/lib /usr/local/freeswitch/lib
+
+WORKDIR /tmp
+RUN wget -qO freeswitch-src.tar.xz \
+        https://files.freeswitch.org/freeswitch-releases/freeswitch-1.10.10.-release.tar.xz \
+    && tar -xJf freeswitch-src.tar.xz \
+    && rm freeswitch-src.tar.xz
+
+# Compile mod_loopback as a standalone shared object. mod_loopback.c
+# is a single translation unit with no extra dependencies beyond
+# libfreeswitch — pcre comes via switch_regex.h.
+RUN gcc -shared -fPIC -O2 \
+        -I/usr/local/freeswitch/include/freeswitch \
+        -L/usr/local/freeswitch/lib \
+        -Wl,-rpath,/usr/local/freeswitch/lib \
+        -o /tmp/mod_loopback.so \
+        /tmp/freeswitch-1.10.10.-release/src/mod/endpoints/mod_loopback/mod_loopback.c \
+        -lfreeswitch \
+    && test -f /tmp/mod_loopback.so
+
 FROM drachtio/drachtio-freeswitch-mrf:latest
 
 RUN apt-get update && apt-get install -y \
@@ -44,12 +91,16 @@ RUN apt-get update && apt-get install -y \
 
 COPY --from=builder /usr/local/lib/libnats.so* /usr/local/lib/
 COPY --from=builder /workspace/mod_event_agent.so /usr/local/freeswitch/mod/
+COPY --from=loopback-builder /tmp/mod_loopback.so /usr/local/freeswitch/mod/
 
 RUN ldconfig
 
 COPY autoload_configs/mod_event_agent.conf.xml /usr/local/freeswitch/conf/autoload_configs/
 
-RUN sed -i '/<\/modules>/i \    <load module="mod_event_agent"\/>/' /usr/local/freeswitch/conf/autoload_configs/modules.conf.xml
+# Load mod_event_agent (our NATS bridge) and mod_loopback (used by the
+# Go agent's call-control integration tests) at boot time. The sed
+# inserts both <load> entries before </modules>.
+RUN sed -i '/<\/modules>/i \    <load module="mod_event_agent"\/>\n    <load module="mod_loopback"\/>' /usr/local/freeswitch/conf/autoload_configs/modules.conf.xml
 
 # Insert NATS environment variables into vars.xml (before closing </include>)
 RUN sed -i 's|</include>|  <!-- mod_event_agent NATS configuration -->\n  <X-PRE-PROCESS cmd="env-set" data="agent_node_id=\$AGENT_NODE_ID"/>\n<X-PRE-PROCESS cmd="env-set" data="nats_host=\$NATS_HOST"/>\n  <X-PRE-PROCESS cmd="env-set" data="nats_port=\$NATS_PORT"/>\n</include>|' /usr/local/freeswitch/conf/vars.xml
