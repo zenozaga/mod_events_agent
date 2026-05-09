@@ -1,5 +1,8 @@
 #include "interface.h"
 #include <nats/nats.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
 
 /* Hard ceiling on simultaneous NATS subscriptions held by the driver.
  * The module legitimately needs only two: the broadcast `<prefix>.api`
@@ -10,6 +13,12 @@
  * NATS server kicks the connection. The cap surfaces the bug early
  * with a loud refusal instead of a silent leak. */
 #define NATS_DRIVER_MAX_SUBSCRIPTIONS 32
+
+/* Cap on the number of broker URLs accepted in a comma-separated
+ * MOD_EVENT_AGENT_URL. Realistic NATS clusters run 3-5 nodes; 16 is
+ * deliberate headroom to absorb a multi-region deployment without
+ * letting a typo'd config grow unbounded. */
+#define NATS_DRIVER_MAX_SERVERS 16
 
 typedef struct {
     natsConnection *conn;
@@ -85,12 +94,90 @@ static switch_status_t nats_init(event_driver_t *driver, switch_hash_t *config) 
         return SWITCH_STATUS_FALSE;
     }
 
-    s = natsOptions_SetURL(ctx->opts, url);
-    if (s != NATS_OK) {
-        natsOptions_Destroy(ctx->opts);
-        ctx->opts = NULL;
-        switch_core_hash_destroy(&ctx->subscriptions);
-        return SWITCH_STATUS_FALSE;
+    /* The url string can be either a single URL or a comma-separated
+     * list of URLs that point at every node of a NATS cluster. libnats
+     * has two different setters for this:
+     *   - natsOptions_SetURL    : one URL, single-broker semantics
+     *   - natsOptions_SetServers: array of URLs, the client tries each
+     *     in order on connect and on reconnect, giving us cluster
+     *     failover for free.
+     *
+     * We pick the right one based on whether the configured value
+     * contains a comma. A list with a single entry could route
+     * through SetServers too, but the dedicated SetURL path is
+     * simpler and matches the common single-broker case. */
+    if (strchr(url, ',')) {
+        char *url_copy = strdup(url);
+        if (!url_copy) {
+            natsOptions_Destroy(ctx->opts);
+            ctx->opts = NULL;
+            switch_core_hash_destroy(&ctx->subscriptions);
+            return SWITCH_STATUS_FALSE;
+        }
+        const char *servers[NATS_DRIVER_MAX_SERVERS];
+        char *owned[NATS_DRIVER_MAX_SERVERS];
+        int count = 0;
+        char *save = NULL;
+        char *tok = strtok_r(url_copy, ",", &save);
+        while (tok && count < NATS_DRIVER_MAX_SERVERS) {
+            /* Trim leading whitespace so "url1, url2" parses to two
+             * clean entries instead of "url1" + " url2". libnats
+             * rejects URLs with embedded spaces, so silent breakage
+             * here would be confusing. */
+            while (*tok && isspace((unsigned char)*tok)) tok++;
+            /* Trim trailing whitespace too. */
+            char *end = tok + strlen(tok);
+            while (end > tok && isspace((unsigned char)*(end - 1))) {
+                end--;
+            }
+            *end = '\0';
+            if (*tok) {
+                owned[count] = strdup(tok);
+                servers[count] = owned[count];
+                count++;
+            }
+            tok = strtok_r(NULL, ",", &save);
+        }
+        free(url_copy);
+
+        if (count == 0) {
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR,
+                              "[mod_event_agent] No valid servers parsed from URL list");
+            natsOptions_Destroy(ctx->opts);
+            ctx->opts = NULL;
+            switch_core_hash_destroy(&ctx->subscriptions);
+            return SWITCH_STATUS_FALSE;
+        }
+
+        s = natsOptions_SetServers(ctx->opts, servers, count);
+
+        /* libnats copies each URL string into its own internal
+         * storage; we can release our temporary copies as soon as
+         * SetServers returns regardless of whether it succeeded. */
+        for (int i = 0; i < count; i++) {
+            free(owned[i]);
+        }
+
+        if (s != NATS_OK) {
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR,
+                              "[mod_event_agent] natsOptions_SetServers failed: %s",
+                              natsStatus_GetText(s));
+            natsOptions_Destroy(ctx->opts);
+            ctx->opts = NULL;
+            switch_core_hash_destroy(&ctx->subscriptions);
+            return SWITCH_STATUS_FALSE;
+        }
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
+                          "[mod_event_agent] NATS configured with %d servers (cluster failover)",
+                          count);
+    } else {
+        s = natsOptions_SetURL(ctx->opts, url);
+        if (s != NATS_OK) {
+            natsOptions_Destroy(ctx->opts);
+            ctx->opts = NULL;
+            switch_core_hash_destroy(&ctx->subscriptions);
+            return SWITCH_STATUS_FALSE;
+        }
     }
     
     token = switch_core_hash_find(config, "token");

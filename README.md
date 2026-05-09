@@ -638,36 +638,6 @@ See [docs/API.md](docs/API.md) for complete command documentation.
 
 ---
 
-## 🧪 Testing
-
-> **⚠️ DEVELOPMENT MODE**: This module is under active development. Currently there is only one functional test as a reference.
-
-### Available Test
-
-#### `show_modules_test`
-NATS client that verifies module loading by sending the `show modules` command:
- 
-**Expected output:**
-```json
-{
-  "success": true,
-  "message": "API command executed",
-  "data": "type,name,ikey,filename\n...\ngeneric,mod_event_agent,mod_event_agent,/usr/local/freeswitch/mod/mod_event_agent.so\n...",
-  "timestamp": 1764915137308268,
-  "node_id": "fs-node-01"
-}
-```
-
-### Future Tests (Roadmap)
-
-More tests will be added to cover:
-- ✅ Generic API commands (`status`, `version`, `global_getvar`)
-- 🚧 Async commands (originate, hangup)
-- 🚧 Event streaming (FreeSWITCH event subscription)
-- 🚧 Performance benchmarks (throughput, latency)
-- 🚧 Multi-node scenarios (node filtering)
-- 🚧 Concurrent clients (race conditions)
-
 ### Validated Performance (Production)
 
 - ✅ **100,000 requests**: 100% success rate
@@ -772,6 +742,44 @@ test_validation  : ALL PASS  (11/11 cases)
 
 CI consumers should `make check` from `tests/` — `run.sh` exits
 non-zero on any failure.
+
+### Coverage map (honest)
+
+What the integration suite verifies today vs the original roadmap:
+
+| Surface | Status | Where |
+|---------|--------|-------|
+| Generic API commands (`status`, `version`, `uptime`) | ✅ Verified | `test_denylist.c` (3 allowed verbs) |
+| Generic API command `global_getvar` | ⚠️ Not in suite | Trivial to add — same shape as `version` |
+| Typed validators (`originate`, `hangup`, `dialplan.*`) | ✅ Verified | `test_validation.c` (11 cases) |
+| Successful `originate` round-trip (real call) | ❌ Not in suite | Needs a SIP endpoint to dial; deferred |
+| Async fire-and-forget delivery | ⚠️ Code path tested implicitly | No explicit assertion |
+| Event streaming (channel.* events) | ❌ Not in suite | Needs a sourced event in FS — deferred |
+| Performance benchmarks (throughput, latency) | ❌ Not in suite | Numbers in this README come from earlier ad-hoc runs |
+| Multi-node filtering (broadcast vs direct) | ⚠️ Direct subject used everywhere | Broadcast `<prefix>.api` filter not asserted |
+| Concurrent clients (race conditions) | ❌ Not in suite | Single-threaded smoke today |
+| **Hardening guards** (size cap, denylist, validators) | ✅ Verified | New: `test_size_limit.c`, `test_denylist.c`, `test_validation.c` |
+| **Cluster failover** (multi-URL via `SetServers`) | ✅ Smoke verified | Module loads + responds when `MOD_EVENT_AGENT_URL` carries multiple URLs |
+
+### Cluster failover
+
+The driver detects a comma in `MOD_EVENT_AGENT_URL` and switches from
+`natsOptions_SetURL` to `natsOptions_SetServers`. libnats then handles
+connect-and-failover across the list automatically.
+
+```bash
+# Single broker (the common case)
+MOD_EVENT_AGENT_URL=nats://nats:4222
+
+# Cluster (libnats picks one and falls over to the others on disconnect)
+MOD_EVENT_AGENT_URL=nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222
+```
+
+- The module accepts up to 16 servers in the list.
+- Whitespace around commas is trimmed (so `"a, b"` works).
+- One module log line at INFO confirms how many servers libnats was
+  configured with: `[mod_event_agent] NATS configured with N servers
+  (cluster failover)`.
 
 ---
 
