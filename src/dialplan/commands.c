@@ -28,6 +28,38 @@ static command_result_t dialplan_enable(const command_request_t *request) {
         return guard;
     }
 
+    /* Optional `park_timeout` (seconds) en el payload. Si no viene, el
+     * manager mantiene su default (DIALPLAN_PARK_TIMEOUT_DEFAULT = 30s).
+     * Aceptamos number o string-numeric para flex con clientes JSON
+     * que serializan los uint a string.
+     *
+     * Permitimos 0 explícito (forever) — el operador que pide eso ya
+     * sabe lo que hace. El manager loguea WARN para dejar trace. */
+    cJSON *timeout_item = request->payload
+        ? cJSON_GetObjectItemCaseSensitive(request->payload, "park_timeout")
+        : NULL;
+    if (timeout_item) {
+        uint32_t timeout = 0;
+        if (cJSON_IsNumber(timeout_item)) {
+            if (timeout_item->valuedouble < 0) {
+                return command_result_error("park_timeout must be >= 0");
+            }
+            timeout = (uint32_t)timeout_item->valuedouble;
+        } else if (cJSON_IsString(timeout_item) && !zstr(timeout_item->valuestring)) {
+            int parsed = atoi(timeout_item->valuestring);
+            if (parsed < 0) {
+                return command_result_error("park_timeout must be >= 0");
+            }
+            timeout = (uint32_t)parsed;
+        } else {
+            return command_result_error("park_timeout must be a number");
+        }
+
+        if (dialplan_manager_set_park_timeout(g_dialplan_manager, timeout) != SWITCH_STATUS_SUCCESS) {
+            return command_result_error("Failed to set park_timeout");
+        }
+    }
+
     if (dialplan_manager_set_mode(g_dialplan_manager, DIALPLAN_MODE_PARK) != SWITCH_STATUS_SUCCESS) {
         return command_result_error("Failed to enable park mode");
     }
@@ -35,6 +67,9 @@ static command_result_t dialplan_enable(const command_request_t *request) {
     cJSON *data = cJSON_CreateObject();
     if (data) {
         cJSON_AddStringToObject(data, "mode", "park");
+        if (g_dialplan_manager) {
+            cJSON_AddNumberToObject(data, "park_timeout", g_dialplan_manager->park_timeout);
+        }
     }
 
     command_result_t result = command_result_ok();

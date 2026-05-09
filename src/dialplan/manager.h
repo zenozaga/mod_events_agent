@@ -23,6 +23,14 @@ typedef enum {
  * set constant. */
 #define DIALPLAN_MUSIC_CLASS_MAX  64
 
+/* Default park_timeout en segundos. Si el cerebro (Go) no reclama el
+ * canal en este tiempo, FreeSWITCH lo cuelga con park_timeout_dest.
+ * Cero significaría "park forever" — anti-pattern peligroso porque
+ * deja recursos colgados si el brain cae. 30s alinea con la política
+ * de los dialplans estáticos en chatvip (whatsapp/pstn). Operadores
+ * que necesiten otro valor lo setean via dialplan_manager_set_park_timeout. */
+#define DIALPLAN_PARK_TIMEOUT_DEFAULT  30
+
 struct dialplan_manager_s {
     switch_memory_pool_t *pool;
     switch_mutex_t *mutex;
@@ -33,6 +41,7 @@ struct dialplan_manager_s {
     switch_bool_t auto_answer;
     char *context_name;
     char music_class[DIALPLAN_MUSIC_CLASS_MAX]; /* MOH class to use */
+    uint32_t park_timeout;                      /* segundos; 0 = forever (no recomendado) */
 
     /* XML binding */
     switch_xml_binding_t *binding;
@@ -60,6 +69,10 @@ switch_status_t dialplan_manager_set_auto_answer(dialplan_manager_t *manager, sw
 
 /* Set music class */
 switch_status_t dialplan_manager_set_music_class(dialplan_manager_t *manager, const char *music_class);
+
+/* Set park_timeout (segundos). 0 = forever (anti-pattern, generalmente
+ * solo útil para tests deterministas o flows muy controlados). */
+switch_status_t dialplan_manager_set_park_timeout(dialplan_manager_t *manager, uint32_t timeout_seconds);
 
 /* Get current status */
 void dialplan_manager_get_status(dialplan_manager_t *manager, switch_stream_handle_t *stream);
