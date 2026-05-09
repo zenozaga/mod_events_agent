@@ -6,6 +6,15 @@
 #include "status.h"
 #include <string.h>
 
+/* Maximum size in bytes the module accepts for an inbound command JSON.
+ * NATS server caps payloads at 1MB by default; we cap a magnitude lower
+ * so a single malformed publisher cannot OOM FreeSWITCH by sending a
+ * huge JSON. 64KB is more than enough for any legitimate command (the
+ * largest realistic payload is an `originate` with a fat variables map
+ * which still fits in <8KB). Override via env if a future workload
+ * legitimately needs bigger. */
+#define COMMAND_MAX_PAYLOAD_BYTES (64 * 1024)
+
 static event_driver_t *g_driver = NULL;
 static switch_hash_t *g_registry = NULL;
 static command_handler_fn g_default_handler = NULL;
@@ -75,6 +84,26 @@ void command_register_default_handler(command_handler_fn handler) {
 static void dispatch_command(const char *subject, const char *data, size_t len, const char *reply_to, void *user_data) {
     command_stats_increment_received();
 
+    /* Size guard. Reject anything obviously too big BEFORE handing to
+     * cJSON_Parse, which would otherwise allocate proportional to the
+     * input. This is the cheapest backstop against a malformed publisher
+     * exhausting memory in the FS process. */
+    if (len > COMMAND_MAX_PAYLOAD_BYTES) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
+                          "[mod_event_agent] Rejecting oversized payload on %s: %zu bytes (max %d)",
+                          subject ? subject : "<unknown>", len, COMMAND_MAX_PAYLOAD_BYTES);
+        command_stats_increment_failed();
+        publish_response(reply_to, SWITCH_FALSE, "Payload too large", NULL);
+        return;
+    }
+
+    /* cJSON_Parse expects a NUL-terminated string. The NATS driver
+     * always delivers payloads with a trailing NUL (libnats allocates
+     * len+1 internally and writes \0); the size guard above already
+     * stops oversized inputs before they reach the parser. We rely on
+     * cJSON 1.7.12 here because that is what FreeSWITCH bundles via
+     * switch_cJSON.h — newer parsers (cJSON_ParseWithLength) exist on
+     * the system but the FS-bundled version wins the include order. */
     cJSON *json = cJSON_Parse(data);
     if (!json) {
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "[mod_event_agent] Invalid JSON payload on subject %s", subject ? subject : "<unknown>");

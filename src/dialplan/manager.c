@@ -150,12 +150,13 @@ switch_status_t dialplan_manager_init(dialplan_manager_t **manager, switch_memor
     
     switch_mutex_init(&m->mutex, SWITCH_MUTEX_NESTED, pool);
     
-    /* Default configuration */
+    /* Default configuration. music_class is a fixed-size buffer (see
+     * manager.h) so we copy in instead of strdup'ing into the pool. */
     m->mode = DIALPLAN_MODE_DISABLED;
     m->audio_mode = AUDIO_MODE_RINGBACK;
     m->auto_answer = SWITCH_FALSE;
     m->context_name = switch_core_strdup(pool, "default");
-    m->music_class = switch_core_strdup(pool, "moh");
+    switch_copy_string(m->music_class, "moh", sizeof(m->music_class));
     
     /* Bind to dialplan section */
     if (switch_xml_bind_search_function_ret(dialplan_xml_fetch, 
@@ -247,14 +248,27 @@ switch_status_t dialplan_manager_set_music_class(dialplan_manager_t *manager, co
     if (!manager || zstr(music_class)) {
         return SWITCH_STATUS_FALSE;
     }
-    
+
+    /* Reject overly long classes up front. The buffer is bounded so
+     * switch_copy_string would silently truncate; loud rejection helps
+     * the operator see the misconfiguration immediately. */
+    if (strlen(music_class) >= sizeof(manager->music_class)) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
+                          "Dialplan Manager: music class '%s' exceeds %zu chars; rejecting\n",
+                          music_class, sizeof(manager->music_class) - 1);
+        return SWITCH_STATUS_FALSE;
+    }
+
     switch_mutex_lock(manager->mutex);
-    manager->music_class = switch_core_strdup(manager->pool, music_class);
+    /* Copy into the fixed-size buffer instead of pool-allocating a fresh
+     * string per call. This stops the slow leak of pool-resident strings
+     * the previous implementation accumulated. */
+    switch_copy_string(manager->music_class, music_class, sizeof(manager->music_class));
     switch_mutex_unlock(manager->mutex);
-    
+
     switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
                      "Dialplan Manager: music class changed to %s\n", music_class);
-    
+
     return SWITCH_STATUS_SUCCESS;
 }
 
