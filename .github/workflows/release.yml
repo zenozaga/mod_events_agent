@@ -1,0 +1,155 @@
+name: Release
+
+# Trigger: someone pushes a git tag like v0.1.0, v1.2.3, etc.
+# CI on master keeps running independently via ci.yml — this workflow
+# is ONLY for tagged releases that publish to GHCR.
+on:
+  push:
+    tags:
+      - 'v*'
+
+# We need to:
+#   - read repo contents (checkout)
+#   - write packages (push to ghcr.io)
+# id-token is reserved for future cosign image signing — not used yet.
+permissions:
+  contents: read
+  packages: write
+
+# Image base names — derived from the repo owner so a fork builds under
+# its own namespace without manual edits. The actual full ref is
+# ghcr.io/<owner>/<image>:<tag>.
+env:
+  REGISTRY: ghcr.io
+  IMAGE_MOD: ${{ github.repository_owner }}/mod_event_agent
+  IMAGE_FS:  ${{ github.repository_owner }}/freeswitch-events-agent
+
+jobs:
+  publish:
+    name: Build, smoke-test, publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        # Strip the leading 'v' from refs/tags/vX.Y.Z so the resulting
+        # image tag is the bare semver (0.1.0), matching docker/OCI
+        # convention. The `latest` tag is added independently below.
+        run: |
+          REF="${GITHUB_REF#refs/tags/}"
+          VERSION="${REF#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
+          echo "Building release ${REF} → image tag ${VERSION}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ---------------------------------------------------------------
+      # Build phase — both images locally, NO push yet. If smoke-test
+      # fails, nothing reaches the registry.
+      # ---------------------------------------------------------------
+
+      - name: Build mod_event_agent builder image
+        # The "builder" image contains only the .so + libnats — useful
+        # for downstream consumers that bake the .so into their own FS
+        # image. We tag it but don't run it; it has no entrypoint
+        # beyond /bin/bash.
+        run: docker build -f Dockerfile -t "${REGISTRY}/${IMAGE_MOD}:${VERSION}" -t "${REGISTRY}/${IMAGE_MOD}:latest" .
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Build FreeSWITCH runtime image
+        # The "freeswitch-events-agent" image is the FULL FS install
+        # with mod_event_agent + mod_loopback already loaded. This is
+        # what consumers reference in docker-compose.
+        run: docker build -f Dockerfile.freeswitch -t "${REGISTRY}/${IMAGE_FS}:${VERSION}" -t "${REGISTRY}/${IMAGE_FS}:latest" .
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+      # ---------------------------------------------------------------
+      # Smoke test — start the FS image briefly and confirm
+      # mod_event_agent loaded. Without a running NATS broker it can't
+      # establish the bus, but the module load itself proves the .so
+      # ABI is compatible with the FS base image and our new code
+      # didn't break boot. Boot/load failure = abort release.
+      # ---------------------------------------------------------------
+      - name: Smoke-test FreeSWITCH image loads mod_event_agent
+        env:
+          IMG: ${{ env.REGISTRY }}/${{ env.IMAGE_FS }}:${{ steps.version.outputs.version }}
+        run: |
+          # Run FS for up to 25 seconds, capturing logs. The image's
+          # entrypoint starts freeswitch; we just need enough time for
+          # the module loader to reach mod_event_agent.
+          set -e
+          docker run --rm -d --name fs-smoke "$IMG"
+          # Poll the logs for the "Successfully Loaded [mod_event_agent]"
+          # line, up to 25 seconds. If it never appears, the test fails.
+          for i in $(seq 1 25); do
+            if docker logs fs-smoke 2>&1 | grep -q "Successfully Loaded \[mod_event_agent\]"; then
+              echo "✅ mod_event_agent loaded in container"
+              docker stop fs-smoke || true
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "❌ mod_event_agent did not load within 25s. Last logs:"
+          docker logs fs-smoke 2>&1 | tail -50
+          docker stop fs-smoke || true
+          exit 1
+
+      # ---------------------------------------------------------------
+      # Push phase — only runs if all builds + smoke test passed.
+      # GITHUB_TOKEN has `packages: write` (granted by the permissions
+      # block above) so no PAT needed.
+      # ---------------------------------------------------------------
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push mod_event_agent builder image
+        run: |
+          docker push "${REGISTRY}/${IMAGE_MOD}:${VERSION}"
+          docker push "${REGISTRY}/${IMAGE_MOD}:latest"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Push FreeSWITCH runtime image
+        run: |
+          docker push "${REGISTRY}/${IMAGE_FS}:${VERSION}"
+          docker push "${REGISTRY}/${IMAGE_FS}:latest"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Release summary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          REF: ${{ steps.version.outputs.ref }}
+        run: |
+          {
+            echo "## Released ${REF}"
+            echo ""
+            echo "### Images pushed"
+            echo ""
+            echo "- \`${REGISTRY}/${IMAGE_MOD}:${VERSION}\` (also tagged \`latest\`)"
+            echo "- \`${REGISTRY}/${IMAGE_FS}:${VERSION}\` (also tagged \`latest\`)"
+            echo ""
+            echo "### Pull"
+            echo ""
+            echo "\`\`\`bash"
+            echo "docker pull ${REGISTRY}/${IMAGE_FS}:${VERSION}"
+            echo "\`\`\`"
+            echo ""
+            echo "### Note"
+            echo ""
+            echo "Package visibility is set once via the GitHub UI:"
+            echo "**Packages → package settings → Change visibility → Public**."
+            echo "After that one-time toggle, future releases stay public."
+          } >> "$GITHUB_STEP_SUMMARY"
