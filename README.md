@@ -346,6 +346,49 @@ Stream FreeSWITCH events in real-time:
 
 **Published to**: `freeswitch.events.channel.answer`, `freeswitch.events.channel.create`, etc.
 
+#### ⚠️ Subject naming — underscore-to-dot conversion
+
+The subject builder lowercases the FS event name AND converts every
+`_` character to `.`. Subscribers MUST mirror that grammar or they
+will silently miss events. Examples:
+
+| FreeSWITCH event name (C constant) | NATS subject published |
+|---|---|
+| `CHANNEL_CREATE` | `<prefix>.events.channel.create` |
+| `CHANNEL_ANSWER` | `<prefix>.events.channel.answer` |
+| `CHANNEL_EXECUTE` | `<prefix>.events.channel.execute` |
+| `CHANNEL_EXECUTE_COMPLETE` | `<prefix>.events.channel.execute.complete` |
+| `CHANNEL_HANGUP` | `<prefix>.events.channel.hangup` |
+| `CHANNEL_HANGUP_COMPLETE` | `<prefix>.events.channel.hangup.complete` |
+| `DETECTED_SPEECH` | `<prefix>.events.detected.speech` |
+| `RECORD_START` / `RECORD_STOP` | `<prefix>.events.record.start` / `.stop` |
+| `RECV_INFO` | `<prefix>.events.recv.info` |
+
+Common pitfall: subscribers writing `channel.execute_complete` (with
+the underscore preserved) get NOTHING because the publisher path
+emitted `channel.execute.complete` instead. Use NATS wildcards to
+cover both intents when you don't want to track every dot manually:
+
+```bash
+# Everything channel-scoped (recommended for app-completion observers)
+nats sub "freeswitch.events.channel.>"
+
+# Only execute lifecycle (start + complete)
+nats sub "freeswitch.events.channel.execute.>"
+```
+
+The conversion is implemented in `src/events/adapter.c::build_subject`:
+```c
+*p = tolower(*p);
+if (*p == '_') {
+    *p = '.';
+}
+```
+
+This is intentional — dotted subjects play better with NATS subject
+hierarchies and ACLs than underscores do — but it is NOT obvious from
+the FS event name alone, hence this section.
+
 ### 🔗 Multi-Node Support
 
 Route commands to specific nodes:
