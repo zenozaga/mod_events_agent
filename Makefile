@@ -55,6 +55,7 @@ SOURCES = src/mod_event_agent.c \
           src/commands/core.c \
           src/commands/call.c \
           src/commands/api.c \
+          src/commands/execute_app.c \
 		  src/commands/status.c \
 		  src/validation/validation.c
 

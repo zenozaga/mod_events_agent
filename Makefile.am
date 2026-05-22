@@ -36,6 +36,7 @@ mod_event_agent_la_SOURCES = \
     src/commands/core.c \
     src/commands/call.c \
     src/commands/api.c \
+    src/commands/execute_app.c \
     src/commands/status.c \
     src/validation/validation.c \
     src/drivers/nats.c

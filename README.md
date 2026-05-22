@@ -149,7 +149,52 @@ Connect two legs dynamically using native FreeSWITCH commands:
 }
 ```
 
-#### 4. Statistics & Monitoring
+#### 4. Dialplan App Execution (`execute_app`)
+Invoke any FreeSWITCH **dialplan APP** (e.g. `play_and_get_digits`, `bridge`,
+`ivr`, `record`, `playback`, `set`, `transfer`) on a live channel — without
+the dialplan XML. APPs are registered via `SWITCH_ADD_APP` (distinct from
+API verbs); the generic api handler cannot reach them because
+`switch_api_execute` only resolves API verbs. `execute_app` fills that gap
+by calling `switch_core_session_execute_application_async` directly — the
+same C entry point dialplan XML uses internally.
+
+```json
+{
+  "command": "execute_app",
+  "uuid":    "<channel-uuid>",
+  "app":     "play_and_get_digits",
+  "args":    "1 4 3 5000 # tone_stream://%(300,0,440) /invalid.wav my_digits \\d+ 2000 -"
+}
+```
+
+Required: `uuid`, `app`. Optional: `args` (passed verbatim as a single
+string — spaces in args are preserved exactly, no internal tokenization).
+
+**Dispatch is always async.** The reply confirms the app was queued on the
+channel's runtime thread:
+
+```json
+{ "success": true, "message": "execute_app dispatched" }
+```
+
+The app's actual outcome (digits captured, file played, regex match, etc.)
+flows back via the **event bus** as `CHANNEL_EXECUTE_COMPLETE`. Subscribe
+to `freeswitch.events.channel.execute_complete` filtered by `Unique-ID`
+and `Application` to observe completion. Why async: a sync wrapper would
+block the module's single dispatch thread for the entire duration of the
+app (potentially many seconds for `play_and_get_digits`), serializing all
+other concurrent NATS commands behind it. Async returns in µs and keeps
+the bus hot.
+
+Failure modes:
+- **Pre-dispatch** (missing uuid, missing app, channel not found, queue
+  rejection) → reply `success:false` with a descriptive message.
+- **Post-dispatch** (app rejected its args, regex didn't match, channel
+  hung up mid-execution, internal app timeout) → reply was already
+  `success:true`. Failure surfaces in the `CHANNEL_EXECUTE_COMPLETE`
+  event headers (`Application-Response`, `variable_read_result`, etc.).
+
+#### 5. Statistics & Monitoring
 Real-time module metrics:
 ```json
 {
@@ -162,6 +207,45 @@ Real-time module metrics:
   "connected": true
 }
 ```
+
+### 🔀 `forward_to` — Tee side-channel for command responses
+
+Every command accepts an optional `forward_to` field. When present, the
+**same response envelope** that goes to the NATS request/reply inbox is
+ALSO published to the supplied subject. Independent of `async`: a
+fire-and-forget caller can still direct the result to an observer
+(metrics, audit, side-branch workflows) without holding a request/reply
+socket open.
+
+```json
+{
+  "command": "execute_app",
+  "uuid":    "abc-123",
+  "app":     "play_and_get_digits",
+  "args":    "1 4 3 5000 # ...",
+  "forward_to": "metrics.voip.pagd.results"
+}
+```
+
+Semantics:
+- **Best-effort**: publish failures to `forward_to` are logged but never
+  bubble up to the caller's reply. Caller's primary contract is unchanged.
+- **Identical payload**: the bytes published to `forward_to` are byte-for-
+  byte the same as the NATS inbox reply — predictable for observers.
+- **Independent of `async`**: works when caller used `nc.Request()` (gets
+  reply + forward) AND when caller used `nc.Publish()` with `async:true`
+  (no reply, but forward still fires).
+- **No correlation framing**: if the consumer needs to tie back to a
+  specific request, include a `correlation_id` in the original payload and
+  the handler will echo it in the response.
+
+Common patterns:
+- **Metrics fan-out**: `forward_to: "metrics.cmd.results"` — separate
+  consumer collects latencies + outcomes without touching the caller path.
+- **Audit trail**: `forward_to: "audit.fs.commands"` — durable log of
+  every dispatched command across the cluster.
+- **Workflow callback**: `forward_to: "workflow.callbacks.exec-42.node-3"`
+  — engine resumes the suspended step when the response arrives.
 
 ### 🛡️ Payload Validation Helpers
 

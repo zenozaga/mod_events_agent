@@ -3,6 +3,7 @@
 #include "core.h"
 #include "call.h"
 #include "api.h"
+#include "execute_app.h"
 #include "status.h"
 #include <string.h>
 
@@ -200,13 +201,53 @@ static void dispatch_command(const char *subject, const char *data, size_t len, 
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[mod_event_agent] Command %s failed: %s", command_name, result.error);
     }
 
-    if (!async) {
-        if (!success && !result.message && result.error) {
-            result.message = result.error;
+    if (!success && !result.message && result.error) {
+        result.message = result.error;
+    }
+
+    /* forward_to is the optional "tee" side-channel. If present, the
+     * SAME response envelope that goes to the NATS reply inbox is also
+     * published to this caller-supplied subject. Independent of `async`
+     * — a fire-and-forget caller can still direct the result to an
+     * observer (metrics, audit, side-branch workflows) without holding
+     * a request/reply socket open. Best-effort: failures publishing
+     * here are logged but never bubble up to the caller. */
+    const cJSON *fwd_item = cJSON_GetObjectItemCaseSensitive(json, "forward_to");
+    const char *forward_to = (fwd_item && cJSON_IsString(fwd_item) && !switch_strlen_zero(fwd_item->valuestring))
+                              ? fwd_item->valuestring : NULL;
+
+    const switch_bool_t want_reply   = !async && reply_to != NULL;
+    const switch_bool_t want_forward = forward_to != NULL;
+
+    if (want_reply || want_forward) {
+        /* Build the response envelope ONCE so the same bytes flow to
+         * both subjects when both are requested. publish_response
+         * consumes `result.data` so we open-code the construction here
+         * to keep ownership clear. */
+        cJSON *response = build_json_response_object(success,
+            result.message ? result.message
+                            : (success ? "Command executed" : "Command failed"));
+        if (response) {
+            if (result.data) {
+                cJSON_AddItemToObject(response, "data", result.data);
+                result.data = NULL;  /* ownership moved into response */
+            }
+            char *json_str = cJSON_PrintUnformatted(response);
+            if (json_str && g_driver) {
+                size_t json_len = strlen(json_str);
+                if (want_reply) {
+                    g_driver->publish(g_driver, reply_to, json_str, json_len);
+                }
+                if (want_forward) {
+                    g_driver->publish(g_driver, forward_to, json_str, json_len);
+                }
+            }
+            switch_safe_free(json_str);
+            cJSON_Delete(response);
         }
-        publish_response(reply_to, success, result.message, result.data);
-        result.data = NULL;
     } else if (result.data) {
+        /* async + no forward_to → caller didn't want any reply. Free
+         * the data so it doesn't leak. */
         cJSON_Delete(result.data);
         result.data = NULL;
     }
@@ -233,6 +274,10 @@ switch_status_t command_handler_init(event_driver_t *driver, switch_memory_pool_
     }
     if (command_call_register() != SWITCH_STATUS_SUCCESS) {
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[mod_event_agent] Failed to register call commands");
+        return SWITCH_STATUS_FALSE;
+    }
+    if (command_execute_app_register() != SWITCH_STATUS_SUCCESS) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[mod_event_agent] Failed to register execute_app handler");
         return SWITCH_STATUS_FALSE;
     }
     if (command_status_register() != SWITCH_STATUS_SUCCESS) {
