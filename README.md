@@ -247,6 +247,59 @@ Common patterns:
 - **Workflow callback**: `forward_to: "workflow.callbacks.exec-42.node-3"`
   — engine resumes the suspended step when the response arrives.
 
+### 🧩 `__fs` — channel-var injection + event forward
+
+`forward_to` (above) tees the **command response** — for an async app
+like `play_and_get_digits` that response is only the dispatch ack, not
+the app's result. The `__fs` wrapper solves the "get the real result
+back" case at the **channel** level. It is a reserved (dunder-prefixed,
+so it never collides with a business field) object accepted by
+`execute_app`:
+
+```json
+{
+  "command": "execute_app",
+  "uuid": "abc-123",
+  "app": "play_and_get_digits",
+  "args": "1 4 3 5000 # ...",
+  "__fs": {
+    "vars": { "pagd_correlation_id": "exec-42:node-3" },
+    "forward_to": "workflow.callbacks"
+  }
+}
+```
+
+- **`__fs.vars`** — a flat `{name: value}` map of channel variables
+  injected onto the located session (via `switch_channel_set_variable`)
+  **in-process, before the app runs**. One command instead of a separate
+  `uuid_setvar` round-trip; atomic with the dispatch, no race, no partial
+  failure. Non-string values are skipped.
+
+- **`__fs.forward_to`** — a full NATS subject. Injected as the reserved
+  channel variable `nats_forward_to`; the event adapter then **mirrors
+  every event for that channel** to this subject (in addition to the
+  normal `<prefix>.events.<name>` publish). Because it fires on the real
+  `CHANNEL_EXECUTE_COMPLETE`, the app's actual result (DTMF digits,
+  read_result, terminator) lands on a subject **you** own — persistent
+  JetStream stream, memory stream, whatever policy you set. Correlate the
+  event back to your caller via the `pagd_correlation_id` (or any) var
+  you injected, echoed as `variable_pagd_correlation_id`.
+
+Semantics:
+- **Missing `__fs` is a zero-cost no-op** (one absent-key lookup).
+- **Best-effort forward**: a failed publish to `__fs.forward_to` logs a
+  warning and never affects the primary event publish or its counters.
+- **Existence is gated by the session locate**: `execute_app` returns
+  `"session not found"` before any injection if the channel is gone —
+  vars are never set on a dead channel.
+
+Distinction at a glance:
+
+| field | scope | tees what | mechanism |
+|---|---|---|---|
+| top-level `forward_to` | one command | the command **response** envelope | `handler.c`, at reply time |
+| `__fs.forward_to` | the whole channel | every **event** of that channel | `nats_forward_to` var + event adapter |
+
 ### 🛡️ Payload Validation Helpers
 
 Every built-in command now uses the lightweight validators under `src/validation/`. They provide

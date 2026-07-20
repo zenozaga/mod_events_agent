@@ -122,6 +122,15 @@ void event_callback(switch_event_t *event)
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "[mod_event_agent] Event %s published successfully", event_name ? event_name : "unknown");
     }
 
+    /* Best-effort tee: channels tagged with nats_forward_to get every
+     * event mirrored to that subject, reusing the serialized bytes. */
+    const char *fwd = switch_event_get_header(event, "variable_nats_forward_to");
+    if (fwd && !switch_strlen_zero(fwd)) {
+        if (globals.driver->publish(globals.driver, fwd, json_str, payload_len) != SWITCH_STATUS_SUCCESS) {
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "[mod_event_agent] Forward publish of event %s to %s failed", event_name ? event_name : "unknown", fwd);
+        }
+    }
+
     free_serialized_event(json_str);
     switch_safe_free(subject);
     switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "[mod_event_agent] event_callback exit (%s)", event_name ? event_name : "unknown");

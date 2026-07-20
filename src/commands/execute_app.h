@@ -20,13 +20,19 @@
  *     "app":     "play_and_get_digits",    // required (any registered SWITCH_ADD_APP)
  *     "args":    "1 4 1 5000 # ...",       // optional (single string, spaces preserved)
  *     "async":   true|false,               // optional, standard semantics
- *     "forward_to": "<subject>"            // optional, standard side-channel
+ *     "forward_to": "<subject>",           // optional, tees the command RESPONSE
+ *     "__fs": {                            // optional channel-context wrapper
+ *       "vars": { "k": "v" },              //   channel vars set in-process pre-dispatch
+ *       "forward_to": "<subject>"          //   mirror every channel EVENT to this subject
+ *     }
  *   }
  *
  * On success the response carries `data` empty plus message
  * "execute_app dispatched". The APP's own result (e.g. DTMF digits,
  * CHANNEL_EXECUTE_COMPLETE) flows via the normal event bus — callers
- * subscribe to the channel.* events to observe it.
+ * subscribe to the channel.* events to observe it, or set
+ * __fs.forward_to to have those events mirrored to a dedicated subject.
+ * See README "__fs" for the distinction vs top-level forward_to.
  */
 switch_status_t command_execute_app_register(void);
 
