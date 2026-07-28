@@ -53,6 +53,15 @@ typedef struct {
     char **api_denylist;
     uint32_t api_denylist_count;
 
+    /* strict: a broker we cannot reach aborts FreeSWITCH startup instead of
+     * leaving this node accepting calls while publishing nothing. */
+    switch_bool_t strict;
+
+    /* retry_forever: keep retrying the FIRST connect and never give up
+     * reconnecting. Off by default, the NATS client stops after 60 tries and
+     * a broker that starts late leaves the node deaf for good. */
+    switch_bool_t retry_forever;
+
     switch_bool_t running;
     uint64_t events_published;
     uint64_t events_failed;

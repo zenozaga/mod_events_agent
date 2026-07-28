@@ -1,4 +1,5 @@
 #include "interface.h"
+#include "../mod_event_agent.h"
 #include <nats/nats.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,19 +39,29 @@ typedef struct {
     natsSubscription *sub;
 } nats_subscription_t;
 
+/* Terminal: the client gave up reconnecting. Every event from here on is
+ * dropped silently, so this has to be loud. */
 static void nats_connection_closed_cb(natsConnection *nc, void *closure) {
     nats_driver_ctx_t *ctx = (nats_driver_ctx_t *)closure;
     ctx->connected = SWITCH_FALSE;
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT,
+                      "[mod_event_agent] broker connection CLOSED for good - this node is now "
+                      "deaf and will publish nothing. Restart it, or set %s=true.",
+                      "MOD_EVENT_AGENT_RETRY_FOREVER");
 }
 
 static void nats_disconnected_cb(natsConnection *nc, void *closure) {
     nats_driver_ctx_t *ctx = (nats_driver_ctx_t *)closure;
     ctx->connected = SWITCH_FALSE;
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR,
+                      "[mod_event_agent] broker disconnected - events are buffered while it is down");
 }
 
 static void nats_reconnected_cb(natsConnection *nc, void *closure) {
     nats_driver_ctx_t *ctx = (nats_driver_ctx_t *)closure;
     ctx->connected = SWITCH_TRUE;
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE,
+                      "[mod_event_agent] broker reconnected");
     ctx->reconnects++;
 }
 
@@ -194,9 +205,18 @@ static switch_status_t nats_init(event_driver_t *driver, switch_hash_t *config) 
     natsOptions_SetDisconnectedCB(ctx->opts, nats_disconnected_cb, ctx);
     natsOptions_SetReconnectedCB(ctx->opts, nats_reconnected_cb, ctx);
     natsOptions_SetErrorHandler(ctx->opts, nats_error_cb, ctx);
-    natsOptions_SetMaxReconnect(ctx->opts, 60);
     natsOptions_SetReconnectWait(ctx->opts, 1000);
     natsOptions_SetReconnectBufSize(ctx->opts, 8 * 1024 * 1024);
+
+    /* The client only enters its reconnect loop after ONE successful connect,
+     * so without RetryOnFailedConnect a broker that starts later than
+     * FreeSWITCH leaves this node deaf until someone restarts it. */
+    if (globals.retry_forever) {
+        natsOptions_SetMaxReconnect(ctx->opts, -1);
+        natsOptions_SetRetryOnFailedConnect(ctx->opts, true, NULL, NULL);
+    } else {
+        natsOptions_SetMaxReconnect(ctx->opts, 60);
+    }
     
     return SWITCH_STATUS_SUCCESS;
 }

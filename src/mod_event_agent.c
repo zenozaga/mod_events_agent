@@ -68,6 +68,18 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_event_agent_load)
     if (status != SWITCH_STATUS_SUCCESS) {
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "[mod_event_agent] Failed to connect driver");
         globals.driver->shutdown(globals.driver);
+
+        /* Returning FALSE only unloads this module - FreeSWITCH keeps booting
+         * and answers calls it can no longer report on. In strict mode take the
+         * whole process down so the orchestrator restarts us once the broker
+         * is reachable. */
+        if (globals.strict) {
+            int arg = 0;
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT,
+                              "[mod_event_agent] strict mode: broker unreachable, shutting FreeSWITCH "
+                              "down rather than running deaf");
+            switch_core_session_ctl(SCSC_SHUTDOWN_NOW, &arg);
+        }
         return SWITCH_STATUS_FALSE;
     }
 

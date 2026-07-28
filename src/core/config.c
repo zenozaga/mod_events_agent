@@ -14,6 +14,8 @@
 #define ENV_URL          "MOD_EVENT_AGENT_URL"
 #define ENV_NODE_ID      "MOD_EVENT_AGENT_NODE_ID"
 #define ENV_API_DENYLIST "MOD_EVENT_AGENT_API_DENYLIST"
+#define ENV_STRICT       "MOD_EVENT_AGENT_STRICT"
+#define ENV_RETRY_FOREVER "MOD_EVENT_AGENT_RETRY_FOREVER"
 
 /* Bound on how many API verbs the denylist can carry. The list is a
  * sandbox guardrail, not a permission system — anyone who needs more
@@ -161,6 +163,23 @@ switch_status_t event_agent_config_load(switch_memory_pool_t *pool)
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
                           "[mod_event_agent] api denylist sourced from env %s (%u entries)",
                           ENV_API_DENYLIST, globals.api_denylist_count);
+    }
+
+    globals.strict        = switch_true(getenv(ENV_STRICT));
+    globals.retry_forever = switch_true(getenv(ENV_RETRY_FOREVER));
+
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE,
+                      "[mod_event_agent] broker policy: strict=%s retry_forever=%s "
+                      "(%s / %s)",
+                      globals.strict ? "on" : "off",
+                      globals.retry_forever ? "on" : "off",
+                      ENV_STRICT, ENV_RETRY_FOREVER);
+
+    if (!globals.strict) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
+                          "[mod_event_agent] strict is OFF: if the broker is unreachable this "
+                          "node keeps taking calls while publishing nothing. Set %s=true.",
+                          ENV_STRICT);
     }
 
     if (!(xml = switch_xml_open_cfg("event_agent.conf", &cfg, NULL))) {
