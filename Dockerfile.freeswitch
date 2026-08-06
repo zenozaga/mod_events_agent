@@ -80,11 +80,101 @@ RUN gcc -shared -fPIC -O2 \
         -lfreeswitch \
     && test -f /tmp/mod_loopback.so
 
+# ---------------------------------------------------------------------
+# mod_http_cache builder
+# ---------------------------------------------------------------------
+# Drachtio base ships mod_shout (mp3/ogg streaming) but NOT
+# mod_http_cache, which is required to:
+#   - play any audio format over http:// (wav, μ-law, pcma — mod_shout
+#     only decodes mp3/ogg/flac);
+#   - reach private S3 buckets via AWS Signature v4 (`s3://bucket/key`);
+#   - cache fetched files on local disk (mod_shout re-streams every time).
+#
+# mod_http_cache lives in src/mod/applications/mod_http_cache/ and is a
+# small unit: mod_http_cache.c + aws.c + azure.c, linking against
+# libcurl + libssl + libfreeswitch. Compile out-of-tree against the
+# headers from the base image (same ABI as runtime).
+FROM debian:bookworm-slim AS http-cache-builder
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    pkg-config \
+    wget \
+    xz-utils \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=freeswitch-base /usr/local/freeswitch/include/freeswitch /usr/local/freeswitch/include/freeswitch
+COPY --from=freeswitch-base /usr/local/freeswitch/lib /usr/local/freeswitch/lib
+
+WORKDIR /tmp
+RUN wget -qO freeswitch-src.tar.xz \
+        https://files.freeswitch.org/freeswitch-releases/freeswitch-1.10.10.-release.tar.xz \
+    && tar -xJf freeswitch-src.tar.xz \
+    && rm freeswitch-src.tar.xz
+
+# Compile mod_http_cache as a single shared object linking against
+# libfreeswitch + libcurl + libssl. The mod ships extra translation
+# units (aws.c for S3 sig v4, azure.c for Azure Blob); compile all
+# .c files in the directory together so all symbols resolve.
+RUN gcc -shared -fPIC -O2 \
+        -I/usr/local/freeswitch/include/freeswitch \
+        -I/tmp/freeswitch-1.10.10.-release/src/mod/applications/mod_http_cache \
+        -L/usr/local/freeswitch/lib \
+        -Wl,-rpath,/usr/local/freeswitch/lib \
+        -o /tmp/mod_http_cache.so \
+        /tmp/freeswitch-1.10.10.-release/src/mod/applications/mod_http_cache/mod_http_cache.c \
+        /tmp/freeswitch-1.10.10.-release/src/mod/applications/mod_http_cache/aws.c \
+        /tmp/freeswitch-1.10.10.-release/src/mod/applications/mod_http_cache/azure.c \
+        /tmp/freeswitch-1.10.10.-release/src/mod/applications/mod_http_cache/common.c \
+        -lfreeswitch -lcurl -lssl -lcrypto \
+    && test -f /tmp/mod_http_cache.so
+
+# ---------------------------------------------------------------------
+# mod_xml_curl builder
+# ---------------------------------------------------------------------
+# The base image used to ship mod_xml_curl and stopped. Its absence is
+# silent at runtime — FreeSWITCH logs CRIT, keeps running, and every
+# dynamic dialplan lookup falls through to the static XML, so the
+# `brain` and `deliver` contexts vanish and outbound legs die with
+# NO_ROUTE_DESTINATION. Building it here makes the base's contents
+# irrelevant.
+FROM debian:bookworm-slim AS xml-curl-builder
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    pkg-config \
+    wget \
+    xz-utils \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=freeswitch-base /usr/local/freeswitch/include/freeswitch /usr/local/freeswitch/include/freeswitch
+COPY --from=freeswitch-base /usr/local/freeswitch/lib /usr/local/freeswitch/lib
+
+WORKDIR /tmp
+RUN wget -qO freeswitch-src.tar.xz \
+        https://files.freeswitch.org/freeswitch-releases/freeswitch-1.10.10.-release.tar.xz \
+    && tar -xJf freeswitch-src.tar.xz \
+    && rm freeswitch-src.tar.xz
+
+RUN gcc -shared -fPIC -O2 \
+        -I/usr/local/freeswitch/include/freeswitch \
+        -L/usr/local/freeswitch/lib \
+        -Wl,-rpath,/usr/local/freeswitch/lib \
+        -o /tmp/mod_xml_curl.so \
+        /tmp/freeswitch-1.10.10.-release/src/mod/xml_int/mod_xml_curl/mod_xml_curl.c \
+        -lfreeswitch -lcurl -lssl -lcrypto \
+    && test -f /tmp/mod_xml_curl.so
+
 FROM drachtio/drachtio-freeswitch-mrf:latest
 
 RUN apt-get update && apt-get install -y \
     libcjson1 \
     libssl3 \
+    curl \
     libcurl4 \
     zlib1g \
     && rm -rf /var/lib/apt/lists/*
@@ -92,15 +182,29 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /usr/local/lib/libnats.so* /usr/local/lib/
 COPY --from=builder /workspace/mod_event_agent.so /usr/local/freeswitch/mod/
 COPY --from=loopback-builder /tmp/mod_loopback.so /usr/local/freeswitch/mod/
+COPY --from=http-cache-builder /tmp/mod_http_cache.so /usr/local/freeswitch/mod/
+COPY --from=xml-curl-builder /tmp/mod_xml_curl.so /usr/local/freeswitch/mod/
 
 RUN ldconfig
 
+# Build gate: every module the stack cannot run without must be present
+# AND resolve its libraries. A missing .so only logs CRIT at runtime and
+# FreeSWITCH keeps serving, half-broken — that failure has to happen
+# here, where it stops the image from existing at all.
+RUN set -eu; \
+    for m in mod_event_agent mod_loopback mod_http_cache mod_xml_curl; do \
+        so="/usr/local/freeswitch/mod/$m.so"; \
+        [ -f "$so" ] || { echo "FATAL: $so missing"; exit 1; }; \
+        ldd "$so" | grep -q "not found" && { echo "FATAL: $m has unresolved libraries"; ldd "$so" | grep "not found"; exit 1; }; \
+        echo "ok: $m"; \
+    done
+
 COPY autoload_configs/mod_event_agent.conf.xml /usr/local/freeswitch/conf/autoload_configs/
 
-# Load mod_event_agent (our NATS bridge) and mod_loopback (used by the
-# Go agent's call-control integration tests) at boot time. The sed
-# inserts both <load> entries before </modules>.
-RUN sed -i '/<\/modules>/i \    <load module="mod_event_agent"\/>\n    <load module="mod_loopback"\/>' /usr/local/freeswitch/conf/autoload_configs/modules.conf.xml
+# Load mod_event_agent (NATS bridge), mod_loopback (test fixtures),
+# mod_http_cache (HTTP/S3 audio fetch with sig v4 + local caching).
+# The sed inserts all <load> entries before </modules>.
+RUN sed -i '/<\/modules>/i \    <load module="mod_event_agent"\/>\n    <load module="mod_loopback"\/>\n    <load module="mod_http_cache"\/>' /usr/local/freeswitch/conf/autoload_configs/modules.conf.xml
 
 # Insert NATS environment variables into vars.xml (before closing </include>)
 RUN sed -i 's|</include>|  <!-- mod_event_agent NATS configuration -->\n  <X-PRE-PROCESS cmd="env-set" data="agent_node_id=\$AGENT_NODE_ID"/>\n<X-PRE-PROCESS cmd="env-set" data="nats_host=\$NATS_HOST"/>\n  <X-PRE-PROCESS cmd="env-set" data="nats_port=\$NATS_PORT"/>\n</include>|' /usr/local/freeswitch/conf/vars.xml
