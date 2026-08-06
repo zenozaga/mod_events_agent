@@ -51,6 +51,18 @@ static command_result_t handle_api_generic(const command_request_t *request) {
     const cJSON *args_item = cJSON_GetObjectItem(request->payload, "args");
     const char *args = (args_item && cJSON_IsString(args_item)) ? args_item->valuestring : NULL;
 
+    /* A verb buries its target inside args, so __fs needs an explicit uuid. */
+    if (command_fs_options(request->payload).present) {
+        const cJSON *uuid_item = cJSON_GetObjectItemCaseSensitive(request->payload, "uuid");
+        const char *uuid = (uuid_item && cJSON_IsString(uuid_item)) ? uuid_item->valuestring : NULL;
+        if (command_apply_fs_options_by_uuid(request->payload, uuid) != SWITCH_STATUS_SUCCESS) {
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
+                              "[mod_event_agent] %s: __fs needs a live channel (uuid=%s)",
+                              request->command, uuid ? uuid : "<missing>");
+            return command_result_error("__fs requires 'uuid' to name a live channel");
+        }
+    }
+
     switch_log_printf(SWITCH_CHANNEL_LOG,
                       SWITCH_LOG_DEBUG,
                       "[mod_event_agent] Generic API → %s %s",

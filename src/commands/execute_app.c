@@ -60,27 +60,9 @@ static command_result_t handle_execute_app(const command_request_t *request) {
         return command_result_error("execute_app: session not found");
     }
 
-    /* Optional "__fs" wrapper: inject channel vars + event forward
-     * subject BEFORE the app runs. Items are borrowed from
-     * request->payload — never deleted here. switch_channel_set_variable
-     * copies its strings, so no ownership crosses the boundary. */
-    const cJSON *fs_item = cJSON_GetObjectItemCaseSensitive(request->payload, "__fs");
-    if (fs_item && cJSON_IsObject(fs_item)) {
-        switch_channel_t *channel = switch_core_session_get_channel(session);
-        const cJSON *vars_item = cJSON_GetObjectItemCaseSensitive(fs_item, "vars");
-        if (vars_item && cJSON_IsObject(vars_item)) {
-            const cJSON *kv = NULL;
-            cJSON_ArrayForEach(kv, vars_item) {
-                if (kv->string && cJSON_IsString(kv)) {
-                    switch_channel_set_variable(channel, kv->string, kv->valuestring);
-                }
-            }
-        }
-        const cJSON *fwd_item = cJSON_GetObjectItemCaseSensitive(fs_item, "forward_to");
-        if (fwd_item && cJSON_IsString(fwd_item) && !switch_strlen_zero(fwd_item->valuestring)) {
-            switch_channel_set_variable(channel, "nats_forward_to", fwd_item->valuestring);
-        }
-    }
+    /* Optional "__fs" wrapper, applied BEFORE the app runs. The session
+     * is already held here, so this takes the channel variant. */
+    command_apply_fs_options(request->payload, switch_core_session_get_channel(session));
 
     /* Use the async variant: switch_core_session_execute_application is
      * SYNCHRONOUS — it blocks the calling thread until the app returns.

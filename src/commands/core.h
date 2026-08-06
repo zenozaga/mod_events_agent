@@ -43,4 +43,16 @@ void command_result_free(command_result_t *result);
 switch_status_t command_register_handler(const char *name, command_handler_fn handler);
 void command_register_default_handler(command_handler_fn handler);
 
+
+/* The optional "__fs" wrapper: channel vars + per-channel event forward. */
+typedef struct {
+    switch_bool_t present;
+    const cJSON *vars;
+    const char *forward_to;
+} fs_options_t;
+
+fs_options_t command_fs_options(const cJSON *payload);
+switch_status_t command_apply_fs_options(const cJSON *payload, switch_channel_t *channel);
+switch_status_t command_apply_fs_options_by_uuid(const cJSON *payload, const char *uuid);
+
 #endif

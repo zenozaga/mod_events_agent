@@ -119,3 +119,71 @@ void command_result_free(command_result_t *result) {
     switch_safe_free(result->error);
     result->message = NULL;
 }
+
+#define FS_OPTIONS_KEY "__fs"
+
+/* Reads the wrapper without touching a channel. Absent or malformed
+ * members simply come back unset. */
+fs_options_t command_fs_options(const cJSON *payload) {
+    fs_options_t opts = {SWITCH_FALSE, NULL, NULL};
+
+    const cJSON *fs = cJSON_GetObjectItemCaseSensitive(payload, FS_OPTIONS_KEY);
+    if (!fs || !cJSON_IsObject(fs)) {
+        return opts;
+    }
+    opts.present = SWITCH_TRUE;
+
+    const cJSON *vars = cJSON_GetObjectItemCaseSensitive(fs, "vars");
+    if (vars && cJSON_IsObject(vars)) {
+        opts.vars = vars;
+    }
+
+    const cJSON *fwd = cJSON_GetObjectItemCaseSensitive(fs, "forward_to");
+    if (fwd && cJSON_IsString(fwd) && !switch_strlen_zero(fwd->valuestring)) {
+        opts.forward_to = fwd->valuestring;
+    }
+    return opts;
+}
+
+switch_status_t command_apply_fs_options(const cJSON *payload, switch_channel_t *channel) {
+    fs_options_t opts = command_fs_options(payload);
+    if (!opts.present) {
+        return SWITCH_STATUS_SUCCESS;
+    }
+    if (!channel) {
+        return SWITCH_STATUS_FALSE;
+    }
+
+    const cJSON *kv = NULL;
+    cJSON_ArrayForEach(kv, opts.vars) {
+        if (kv->string && cJSON_IsString(kv)) {
+            switch_channel_set_variable(channel, kv->string, kv->valuestring);
+        }
+    }
+    if (opts.forward_to) {
+        switch_channel_set_variable(channel, "nats_forward_to", opts.forward_to);
+    }
+    return SWITCH_STATUS_SUCCESS;
+}
+
+/* For handlers that hold no session. Fails when the wrapper is present
+ * but the channel is gone: a correlation id dropped in silence is the
+ * bug this exists to prevent. */
+switch_status_t command_apply_fs_options_by_uuid(const cJSON *payload, const char *uuid) {
+    if (!command_fs_options(payload).present) {
+        return SWITCH_STATUS_SUCCESS;
+    }
+    if (switch_strlen_zero(uuid)) {
+        return SWITCH_STATUS_FALSE;
+    }
+
+    switch_core_session_t *session = switch_core_session_locate(uuid);
+    if (!session) {
+        return SWITCH_STATUS_FALSE;
+    }
+
+    switch_status_t status =
+        command_apply_fs_options(payload, switch_core_session_get_channel(session));
+    switch_core_session_rwunlock(session);
+    return status;
+}
